@@ -108,3 +108,29 @@ std::pair<float,float> measure_avg_voltage(int channel, uint32_t duration_ms) {
     adc_rerun_default_dma();
     return consumer->process_data();
 }
+
+
+void DualChannelADCConsumer::adc_consume(const uint16_t *buf, size_t buf_len) {
+
+    if (m_skip_first) {
+        // First block of measurements can contain samples of previous measurements
+        // it's easier to skip one block than to find out what is wrong with DMA
+        m_skip_first = false;
+        return;
+    }
+
+    for (size_t n = 0; n < buf_len/2; n++) {
+        buffer_a[n] = buf[n*2];
+        buffer_b[n] = buf[n*2+1];
+    }
+    if (m_consumers[0] != nullptr)
+        m_consumers[0]->consume(buffer_a, buf_len/2);
+    if (m_consumers[1] != nullptr)
+        m_consumers[1]->consume(buffer_b, buf_len/2);
+}
+
+void DualChannelADCConsumer::adc_event(adc_event_t event) {
+    if (event == ADC_EVENT_DMA_START) {
+        m_skip_first = true;
+    }
+}

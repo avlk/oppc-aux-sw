@@ -3,9 +3,8 @@
 #include <hardware/dma.h>
 #include "adc.h"
 #include "board_def.h"
-
-#define ADC_BITS 12
-#define ADC_BUF_LEN 128
+#include "cli_out.h"
+#include "io.h"
 
 static uint adc_dma_chan[2];
 static dma_channel_config adc_dma_cfg[2];
@@ -21,13 +20,15 @@ static void adc_calibrate();
 static void setup_adc_dma(void);
 
 void adc_begin() {
-    analogReadResolution(ADC_BITS);
+    adc_init();
+
+    adc_gpio_init(IO_S1_AIN); 
+    adc_gpio_init(IO_S2_AIN); 
+    adc_gpio_init(IO_GND_AIN); 
+
+    adc_select_input(0);
+
     adc_set_temp_sensor_enabled(false);
-    // First analogRead Will make mbed/Arduino setup ADC structures
-    analogRead(0);
-    analogRead(1);
-    analogRead(2);
-    analogRead(3);
 
     setup_adc_dma();
     adc_calibrate();
@@ -183,8 +184,9 @@ void adc_enable_dma() {
 uint32_t adc_read_raw(int input) {
     if (dma_running)
         return 0; // Should not be called if DMA is running
+    adc_select_input(input);
     adc_fifo_setup(false, true, 1, false, false);
-    return analogRead(input);
+    return adc_read();
 }
 
 float adc_read_V(int input) {

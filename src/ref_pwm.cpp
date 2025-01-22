@@ -66,8 +66,7 @@ void init_ref_pwm() {
     // Set the PWM wrap value
     pwm_config_set_wrap(&config, PWM_WRAP);
     // Init channels 
-    pwm_init(ref_pwm_slice, PWM_CHAN_A, &config, true);
-    pwm_init(ref_pwm_slice, PWM_CHAN_B, &config, true);
+    pwm_init(ref_pwm_slice, &config, true);
 
     set_ref_pwm(0, PWM_STEPS/2);
     set_ref_pwm(1, PWM_STEPS/2);

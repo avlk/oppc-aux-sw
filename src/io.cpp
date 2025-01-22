@@ -33,7 +33,7 @@ void gpio_begin(void) {
   gpio_set(IO_LASER1, 0);
   gpio_output(IO_LASER1);
   gpio_set(IO_LASER2, 0);
-  gpio_output(IO_LASER1);
+  gpio_output(IO_LASER2);
 
   gpio_input(IO_S1_TRIG);
   gpio_input(IO_S2_TRIG);
@@ -60,4 +60,18 @@ bool gpio_get(int gpio) {
 void set_laser(int n, bool mode) {
   if (n == 0 || n == 1)
     gpio_set(IO_LASER1 + n, mode);
+}
+
+void set_led(int led, bool state) {
+  switch (led) {
+    case 0:  
+      gpio_set(IO_LED_INT, state?HIGH:LOW);
+      break;
+    case 1:
+      gpio_set(IO_LED1, state?HIGH:LOW);
+      break;
+    case 2:
+      gpio_set(IO_LED2, state?HIGH:LOW);
+      break;
+  }
 }

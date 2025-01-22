@@ -2,7 +2,6 @@
 #include <stdio.h>
 
 #include "board_def.h"
-#include "nfc.h"
 #include "io.h"
 #include <Wire.h> // I2C library
 #include "adc.h"
@@ -20,19 +19,6 @@
 
 static uint32_t n_dma_samples = 0;
 
-void set_led(int led, bool state) {
-  switch (led) {
-    case 0:  
-      gpio_set(IO_LED_INT, state?HIGH:LOW);
-      break;
-    case 1:
-      gpio_set(IO_LED1, state?HIGH:LOW);
-      break;
-    case 2:
-      gpio_set(IO_LED2, state?HIGH:LOW);
-      break;
-  }
-}
 
 cli_result_t analog_cmd(size_t argc, const char *argv[]) {
     adc_disable_dma();
@@ -45,14 +31,13 @@ cli_result_t analog_cmd(size_t argc, const char *argv[]) {
 
     double ref1 = get_ref_voltage(0);
     double ref2 = get_ref_voltage(1);
-    double fan = get_fan_speed();
 
     cli_info("S1-IN  %.3fV", s1);
     cli_info("S2-IN  %.3fV", s2);
     cli_info("S1-REF %.3fV", ref1);
     cli_info("S2-REF %.3fV", ref2);
     cli_info("FLASH-PWR %d%%", (int)get_flash_level());
-    cli_info("FAN-SPEED %d%%", fan);
+    cli_info("FAN-SPEED %d%%", (int)get_fan_speed());
     
     return CMD_OK;
 }
@@ -81,29 +66,6 @@ cli_result_t status_cmd(size_t argc, const char *argv[]) {
     return CMD_OK;
 }
 
-
-
-extern int adc_offset;
-cli_result_t test_cmd(size_t argc, const char *argv[]) {
-
-    if (argc == 1) {
-        if (strcmp(argv[0], "dmadis") == 0) {
-            adc_disable_dma();
-            cli_info("Disabled DMA");
-        } else if (strcmp(argv[0], "dmaen") == 0) {
-            adc_enable_dma();
-            cli_info("Enabled DMA");
-        } else {
-            cli_info("Unknown subcommand");
-        }
-        return CMD_OK;
-    }
-
-    cli_info("adc_offset %d", adc_offset);
-    cli_info("dma samples %d", n_dma_samples);
-
-    return CMD_OK;
-}
 
 
 cli_result_t led_cmd(size_t argc, const char *argv[]) {
@@ -350,6 +312,7 @@ cli_result_t post_cmd(size_t argc, const char *argv[]) {
     return CMD_OK;
 }
 
+cli_result_t test_cmd(size_t argc, const char *argv[]);
 
 static const cli_cmd_t command_list[] = {
     {analog_cmd, "analog"},
@@ -364,6 +327,7 @@ static const cli_cmd_t command_list[] = {
     {flash_cmd, "flash"},
     {laser_cmd, "laser"},
     {post_cmd, "post"},
+    {test_cmd, "test"},
     {flash_strobe_test_cmd, "flashstrobetest"}
 };
 
@@ -376,6 +340,30 @@ static adc_dma_config_t default_dma_config = {
     consumer: std::make_shared<DefaultADCConsumer>()
 };
 
+extern int adc_offset;
+cli_result_t test_cmd(size_t argc, const char *argv[]) {
+
+    if (argc == 1) {
+        if (strcmp(argv[0], "dmadis") == 0) {
+            adc_disable_dma();
+            cli_info("Disabled DMA");
+        } else if (strcmp(argv[0], "dmaen") == 0) {
+            adc_enable_dma();
+            cli_info("Enabled DMA");
+        } else if (strcmp(argv[0], "defdma") == 0) {
+            adc_set_default_dma(&default_dma_config);
+            cli_info("Set default DMA");
+        } else {
+            cli_info("Unknown subcommand");
+        }
+        return CMD_OK;
+    }
+
+    cli_info("adc_offset %d", adc_offset);
+    cli_info("dma samples %d", n_dma_samples);
+
+    return CMD_OK;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -409,23 +397,7 @@ void heartbeat() {
     set_led(0, false);
 }
 
-void ui_loop() {
-    static uint ui_timeout = 0;
-
-    // Don't block any serial comms
-    if (Serial.available())
-        return;
-
-    // Run each 1/4 sec
-    if (millis() < ui_timeout)
-        return;
-    ui_timeout = millis() + 1000;
-
-    heartbeat();
-
-}
-
 void loop() {
+  heartbeat();
   cli_loop();
-  ui_loop();
 }

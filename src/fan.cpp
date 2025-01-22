@@ -19,7 +19,7 @@ void init_fan() {
     // Set the PWM wrap value
     pwm_config_set_wrap(&config, fan_pwm_wrap);
     // Init channels 
-    pwm_init(slice, pwm_gpio_to_channel(IO_FAN_PWM) , &config, true);
+    pwm_init(slice, &config, true);
 
     set_fan_speed(50);
 

@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <memory>
 
+#define ADC_BITS 12
+#define ADC_BUF_LEN 128
+
 typedef enum {
     ADC_EVENT_DMA_START,
     ADC_EVENT_DMA_STOP
@@ -13,6 +16,14 @@ public:
     virtual void adc_consume(const uint16_t *buf, size_t buf_len) = 0;
     virtual void adc_event(adc_event_t event) = 0;
 };
+
+class TimeSeriesDataConsumer {
+public:
+    virtual void consume(const int *buf, size_t buf_len) = 0;
+    virtual void consume(const float *buf, size_t buf_len) = 0;
+};
+
+
 
 typedef struct {
     uint8_t             n_inputs;

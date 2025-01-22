@@ -14,6 +14,8 @@ void gpio_pin_mode(int gpio, int mode);
 void gpio_set(int gpio, int state);
 bool gpio_get(int gpio);
 
+void set_led(int led, bool state);
+
 void set_laser(int n, bool mode);
 
 #endif
