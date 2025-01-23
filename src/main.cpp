@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <stdio.h>
+#include <FreeRTOS.h>
+#include <task.h>
 
 #include "board_def.h"
 #include "io.h"
@@ -16,6 +18,7 @@
 // https://wiki.segger.com/How_to_debug_Arduino_a_Sketch_with_Ozone_and_J-Link
 
 
+#define DEF_STACK_SIZE 1024
 
 static uint32_t n_dma_samples = 0;
 
@@ -365,6 +368,19 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
     return CMD_OK;
 }
 
+void heartbeat_task(void *pvParameters) {
+    while (1) {
+        set_led(0, true);
+        vTaskDelay(150 / portTICK_PERIOD_MS); // Delay for 150ms
+        set_led(0, false);
+        vTaskDelay(150 / portTICK_PERIOD_MS); // Delay for 150ms
+        set_led(0, true);
+        vTaskDelay(150 / portTICK_PERIOD_MS); // Delay for 150ms
+        set_led(0, false);
+        vTaskDelay(550 / portTICK_PERIOD_MS); // Delay for 550ms
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     stdio_setup();
@@ -372,10 +388,10 @@ void setup() {
 
     Wire.begin(); 
     gpio_begin();
+    set_led(1, true);
     init_ref_pwm();
     init_fan();
     init_flash();
-    set_led(1, false);
 
     adc_begin();
 
@@ -383,21 +399,10 @@ void setup() {
 
     post();
     set_fan(true);
-}
 
-void heartbeat() {
-  unsigned int m = millis() % 1000;
-  if (m < 200)
-    set_led(0, true);
-  else if (m < 400)
-    set_led(0, false);
-  else if (m < 600)
-    set_led(0, true);
-  else
-    set_led(0, false);
+    xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 3, NULL);
 }
 
 void loop() {
-  heartbeat();
-  cli_loop();
+    cli_loop();
 }
