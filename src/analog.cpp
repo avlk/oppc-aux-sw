@@ -113,6 +113,7 @@ std::pair<float,float> measure_avg_voltage(int channel, uint32_t duration_ms) {
 #if !INCLUDE_vTaskSuspend
 #error This code relies on infinite blocking of tasks when portMAX_DELAY is set as timeout value
 #endif
+using namespace queued_adc;
 
 QueuedADCConsumer::QueuedADCConsumer() : IADCDataConsumer() {
     // This is a queue for received data

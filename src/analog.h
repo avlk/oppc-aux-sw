@@ -6,11 +6,6 @@
 
 std::pair<float,float> measure_avg_voltage(int channel, uint32_t duration_ms);
 
-typedef struct {
-    uint32_t timestamp;
-    uint16_t buffer[ADC_BUF_LEN];
-} adc_queue_msg_t;
-
 class DefaultADCConsumer : public IADCDataConsumer {
 public:
     DefaultADCConsumer() : IADCDataConsumer() { }
@@ -19,6 +14,12 @@ public:
     virtual void adc_event(adc_event_t event) override { }
 };
 
+
+namespace queued_adc {
+typedef struct {
+    uint32_t timestamp;
+    uint16_t buffer[ADC_BUF_LEN];
+} adc_queue_msg_t;
 
 constexpr size_t ADC_QUEUE_LEN{8};
 class QueuedADCConsumer : public IADCDataConsumer {
@@ -46,3 +47,5 @@ private:
     QueueHandle_t m_msg_queue;
     QueueHandle_t m_return_queue;
 };
+
+}

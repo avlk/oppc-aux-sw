@@ -376,7 +376,7 @@ void heartbeat_task(void *pvParameters) {
 
 
 void analog_task(void *pvParameters) {
-    auto consumer = std::make_shared<QueuedADCConsumer>();
+    auto consumer = std::make_shared<queued_adc::QueuedADCConsumer>();
     adc_dma_config_t default_dma_config = {
         n_inputs: 2,
         inputs: {ADC_CH_S1, ADC_CH_S2}, 
@@ -387,7 +387,7 @@ void analog_task(void *pvParameters) {
     adc_set_default_dma(&default_dma_config);
 
     while (true) {
-        const adc_queue_msg_t *msg;
+        const queued_adc::adc_queue_msg_t *msg;
         // receive ADC data buffer
         n_dma_samples++;
         msg = consumer->receive_msg(10);
