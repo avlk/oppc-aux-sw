@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "adc.h"
 #include "cli_out.h"
-#include <vector>
+#include "io.h"
 #include "analog.h"
 
 
@@ -16,16 +16,16 @@ public:
         delete[] m_samples;
     }
 
-    virtual void adc_consume(const uint16_t *buf, size_t buf_len) override {
+    virtual bool adc_consume(const uint16_t *buf, size_t buf_len) override {
         if (m_done) {
-            return;
+            return false;
         }
 
         if (m_skip_first) {
             // First block of measurements can contain samples of previous measurements
             // it's easier to skip one block than to find out what is wrong with DMA
             m_skip_first = false;
-            return;
+            return false;
         }
 
         for (size_t n = 0; n < buf_len; n++) {
@@ -37,6 +37,7 @@ public:
             m_done = true;
             adc_stop_ooo_dma();
         }
+        return false;
     }
 
     virtual void adc_event(adc_event_t event) override {
@@ -103,34 +104,81 @@ std::pair<float,float> measure_avg_voltage(int channel, uint32_t duration_ms) {
     // Run conversion
     adc_run_ooo_dma(&single_dma_config);
     while (!consumer->is_done()) {
-        sleep_ms(1);
+        task_sleep_ms(1);
     }
     adc_rerun_default_dma();
     return consumer->process_data();
 }
 
+#if !INCLUDE_vTaskSuspend
+#error This code relies on infinite blocking of tasks when portMAX_DELAY is set as timeout value
+#endif
 
-void DualChannelADCConsumer::adc_consume(const uint16_t *buf, size_t buf_len) {
+QueuedADCConsumer::QueuedADCConsumer() : IADCDataConsumer() {
+    // This is a queue for received data
+    m_msg_queue = xQueueCreate(ADC_QUEUE_LEN, sizeof(adc_queue_msg_t *));
+    // This queue holds unused buffers
+    m_return_queue = xQueueCreate(ADC_QUEUE_LEN, sizeof(adc_queue_msg_t *));
+    // Fill return queue with unused buffers
+    for (size_t n = 0; n < ADC_QUEUE_LEN; n++) {
+        adc_queue_msg_t *ptr = &m_pool[n];
+        xQueueSendToBack(m_return_queue, &ptr, 0);
+    }
+}
 
+
+bool QueuedADCConsumer::adc_consume(const uint16_t *buf, size_t buf_len) {
     if (m_skip_first) {
         // First block of measurements can contain samples of previous measurements
         // it's easier to skip one block than to find out what is wrong with DMA
         m_skip_first = false;
-        return;
+        return false;
     }
 
-    for (size_t n = 0; n < buf_len/2; n++) {
-        buffer_a[n] = buf[n*2];
-        buffer_b[n] = buf[n*2+1];
+    if (buf_len != ADC_BUF_LEN)
+        return false;
+
+    adc_queue_msg_t *msg = nullptr;
+    BaseType_t higher_prio_task_woken = pdFALSE;
+
+    // Get free buffer
+    if (xQueueReceiveFromISR(m_return_queue, &msg, &higher_prio_task_woken) != pdTRUE) {
+        // Failed to get buffer for data
+        cnt_no_buf++;
+        return false;
     }
-    if (m_consumers[0] != nullptr)
-        m_consumers[0]->consume(buffer_a, buf_len/2);
-    if (m_consumers[1] != nullptr)
-        m_consumers[1]->consume(buffer_b, buf_len/2);
+
+    // copy data
+    memcpy(msg->buffer, buf, sizeof(msg->buffer));
+    // TODO: for now timestamp field is not used
+    msg->timestamp = 0;
+
+    // Send the buffer - it shall not fail: as long as we got a buffer 
+    // from m_return_queue, there should be a place in the send queue 
+    if (xQueueSendToBackFromISR(m_msg_queue, &msg, &higher_prio_task_woken) != pdTRUE)
+        cnt_send_fail++;
+
+    return higher_prio_task_woken == pdTRUE;
 }
 
-void DualChannelADCConsumer::adc_event(adc_event_t event) {
+void QueuedADCConsumer::adc_event(adc_event_t event) {
     if (event == ADC_EVENT_DMA_START) {
         m_skip_first = true;
     }
+}
+
+const adc_queue_msg_t *QueuedADCConsumer::receive_msg_int(TickType_t timeout) {
+    adc_queue_msg_t *msg;
+
+    if (xQueueReceive(m_msg_queue, &msg, timeout) != pdPASS)
+        return nullptr;
+    
+    return msg;
+}
+
+void QueuedADCConsumer::return_msg(const adc_queue_msg_t *msg) {
+    const adc_queue_msg_t *_msg{msg};
+
+    if (xQueueSendToBack(m_return_queue, &_msg, portMAX_DELAY) != pdTRUE)
+        cnt_return_fail++;
 }

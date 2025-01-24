@@ -1,6 +1,9 @@
 #include <Arduino.h>
 #include <hardware/adc.h>
 #include <hardware/dma.h>
+#include <FreeRTOS.h>
+#include <task.h>
+#include <queue.h>
 #include "adc.h"
 #include "board_def.h"
 #include "cli_out.h"
@@ -35,33 +38,43 @@ void adc_begin() {
 }
 
 void adc_calibrate() {
-    sleep_ms(10);
+    task_sleep_ms(10);
 
     int acc = 0;
     for (int n = 0; n < 16; n++) {
         acc += adc_read_raw(ADC_CH_REF);
-        sleep_ms(1);
+        task_sleep_ms(1);
     }
     adc_offset = acc / 16;
 }
 
 
 static void dma_irq0_handler() {
+    bool higher_prio_task_woken{false};
+
     // Clear the interrupt request.
     dma_channel_acknowledge_irq0(adc_dma_chan[0]);
     dma_channel_set_write_addr(adc_dma_chan[0], adc_buf0, false);
     dma_channel_set_trans_count(adc_dma_chan[0], ADC_BUF_LEN, false);
+    // Run consumer, it returns true is a higher priority task is woken
     if (dma_config_current && (dma_config_current->consumer != nullptr))
-        dma_config_current->consumer->adc_consume(adc_buf0, ADC_BUF_LEN);
+        higher_prio_task_woken = dma_config_current->consumer->adc_consume(adc_buf0, ADC_BUF_LEN);
+    
+    portYIELD_FROM_ISR(higher_prio_task_woken);
 }
 
 static void dma_irq1_handler() {
+    bool higher_prio_task_woken{false};
+
     // Clear the interrupt request.
     dma_channel_acknowledge_irq1(adc_dma_chan[1]);
     dma_channel_set_write_addr(adc_dma_chan[1], adc_buf1, false);
     dma_channel_set_trans_count(adc_dma_chan[1], ADC_BUF_LEN, false);
+    // Run consumer, it returns true is a higher priority task is woken
     if (dma_config_current && (dma_config_current->consumer != nullptr))
-        dma_config_current->consumer->adc_consume(adc_buf1, ADC_BUF_LEN);
+        higher_prio_task_woken = dma_config_current->consumer->adc_consume(adc_buf1, ADC_BUF_LEN);
+
+    portYIELD_FROM_ISR(higher_prio_task_woken);
 }
 
 static void setup_adc_dma(void) {

@@ -20,12 +20,9 @@
 
 #define DEF_STACK_SIZE 1024
 
-static uint32_t n_dma_samples = 0;
-
-
 cli_result_t analog_cmd(size_t argc, const char *argv[]) {
     adc_disable_dma();
-    sleep_ms(10);
+    task_sleep_ms(10);
 
     double s1 = adc_read_V(ADC_CH_S1);
     double s2 = adc_read_V(ADC_CH_S2);
@@ -187,7 +184,7 @@ cli_result_t flash_cmd(size_t argc, const char *argv[]) {
         return CMD_ERROR;
 
     set_flash(true);
-    sleep_ms(time_ms);
+    task_sleep_ms(time_ms);
     set_flash(false);
 
     return CMD_OK;
@@ -202,9 +199,9 @@ cli_result_t flash_strobe_test_cmd(size_t argc, const char *argv[]) {
     cli_debug("Do not stare directly!");
     for (;;) {
         set_flash(true);
-        sleep_ms(time_ms);
+        task_sleep_ms(time_ms);
         set_flash(false);
-        sleep_ms(interval_ms - time_ms);
+        task_sleep_ms(interval_ms - time_ms);
     }
 
     return CMD_OK;
@@ -219,29 +216,29 @@ void post() {
 
     // 1. Turn the fan off, laser off and measure dark voltage on sensors
     set_fan(false);
-    sleep_ms(500);
+    task_sleep_ms(500);
     set_laser(0, false);
     set_laser(1, false);
-    sleep_ms(20);
+    task_sleep_ms(20);
     dark_v[0] = measure_avg_voltage(0, 20).first;
     dark_v[1] = measure_avg_voltage(1, 20).first;
 
     // 2.1. Turn the laser1 on and measure ambient light through sensor1
     set_laser(0, true);
     set_laser(1, false);
-    sleep_ms(20);
+    task_sleep_ms(20);
     ambient_single[0] = measure_avg_voltage(0, 20).first;
 
     // 2.1. Turn the laser2 on and measure ambient light through sensor2
     set_laser(0, false);
     set_laser(1, true);
-    sleep_ms(20);
+    task_sleep_ms(20);
     ambient_single[1] = measure_avg_voltage(1, 20).first;
 
     // 3.1. Turn both lasers on and measure ambient light through both sensors
     set_laser(0, true);
     set_laser(1, true);
-    sleep_ms(20);
+    task_sleep_ms(20);
     ambient_both[0] = measure_avg_voltage(0, 20).first;
     ambient_both[1] = measure_avg_voltage(1, 20).first;
 
@@ -250,12 +247,12 @@ void post() {
     set_laser(1, true);
     set_flash_level(35); // Flash at 35% generates normal 350mA current
     set_flash(true);
-    sleep_ms(1);
+    task_sleep_ms(1);
     ambient_flash[0] = measure_avg_voltage(0, 1).first;
     set_flash(false);
-    sleep_ms(20);
+    task_sleep_ms(20);
     set_flash(true);
-    sleep_ms(1);
+    task_sleep_ms(1);
     ambient_flash[1] = measure_avg_voltage(1, 1).first;
     set_flash(false);
 
@@ -272,23 +269,23 @@ void post() {
     set_laser(1, true);
 
     set_ref_voltage(0, ambient_both[0] + dark_v[0] - 0.02);
-    sleep_ms(50);
+    task_sleep_ms(50);
     pass = gpio_get(IO_S1_TRIG) == true;
     cli_info("S1_TRIG_HIGH %s", pass ? "PASS" : "FAIL");
 
     set_ref_voltage(0, ambient_both[0] + dark_v[0] + 0.02);
-    sleep_ms(50);
+    task_sleep_ms(50);
     pass = gpio_get(IO_S1_TRIG) == false;
     cli_info("S1_TRIG_LOW %s", pass ? "PASS" : "FAIL");
 
     // 5.2 Test sensor 2 ref
     set_ref_voltage(1, ambient_both[1] + dark_v[1] - 0.02);
-    sleep_ms(50);
+    task_sleep_ms(50);
     pass = gpio_get(IO_S2_TRIG) == true;
     cli_info("S2_TRIG_HIGH %s", pass ? "PASS" : "FAIL");
 
     set_ref_voltage(1, ambient_both[1] + dark_v[1] + 0.02);
-    sleep_ms(50);
+    task_sleep_ms(50);
     pass = gpio_get(IO_S2_TRIG) == false;
     cli_info("S2_TRIG_LOW %s", pass ? "PASS" : "FAIL");
 
@@ -336,12 +333,8 @@ static const cli_cmd_t command_list[] = {
 
 static int command_num = sizeof(command_list) / sizeof(command_list[0]);
 
-static adc_dma_config_t default_dma_config = {
-    n_inputs: 2,
-    inputs: {ADC_CH_S1, ADC_CH_S2}, 
-    sample_freq: 250000,
-    consumer: std::make_shared<DefaultADCConsumer>()
-};
+static volatile float avg_voltage[2] = {-1., -1.};
+static volatile uint32_t n_dma_samples = 0;
 
 extern int adc_offset;
 cli_result_t test_cmd(size_t argc, const char *argv[]) {
@@ -353,9 +346,6 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
         } else if (strcmp(argv[0], "dmaen") == 0) {
             adc_enable_dma();
             cli_info("Enabled DMA");
-        } else if (strcmp(argv[0], "defdma") == 0) {
-            adc_set_default_dma(&default_dma_config);
-            cli_info("Set default DMA");
         } else {
             cli_info("Unknown subcommand");
         }
@@ -364,6 +354,8 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
 
     cli_info("adc_offset %d", adc_offset);
     cli_info("dma samples %d", n_dma_samples);
+    cli_info("Vavg[0] %f", avg_voltage[0]);
+    cli_info("Vavg[1] %f", avg_voltage[1]);
 
     return CMD_OK;
 }
@@ -371,13 +363,50 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
 void heartbeat_task(void *pvParameters) {
     while (1) {
         set_led(0, true);
-        vTaskDelay(150 / portTICK_PERIOD_MS); // Delay for 150ms
+        task_sleep_ms(150);
         set_led(0, false);
-        vTaskDelay(150 / portTICK_PERIOD_MS); // Delay for 150ms
+        task_sleep_ms(150);
         set_led(0, true);
-        vTaskDelay(150 / portTICK_PERIOD_MS); // Delay for 150ms
+        task_sleep_ms(150);
         set_led(0, false);
-        vTaskDelay(550 / portTICK_PERIOD_MS); // Delay for 550ms
+        task_sleep_ms(550);
+    }
+}
+
+
+
+void analog_task(void *pvParameters) {
+    auto consumer = std::make_shared<QueuedADCConsumer>();
+    adc_dma_config_t default_dma_config = {
+        n_inputs: 2,
+        inputs: {ADC_CH_S1, ADC_CH_S2}, 
+        sample_freq: 250000,
+        consumer: consumer
+    };
+
+    adc_set_default_dma(&default_dma_config);
+
+    while (true) {
+        const adc_queue_msg_t *msg;
+        // receive ADC data buffer
+        n_dma_samples++;
+        msg = consumer->receive_msg(10);
+        
+        if (!msg) // should not happen
+            continue;
+
+        // .. process
+        // here it's for test only
+        int avg[2] = {0};
+        for (size_t n = 0; n < ADC_BUF_LEN; n+=2) {
+            avg[0] += msg->buffer[n];
+            avg[1] += msg->buffer[n+1];
+        }
+        avg_voltage[0] = adc_raw_to_V(avg[0]/(ADC_BUF_LEN/2));
+        avg_voltage[1] = adc_raw_to_V(avg[1]/(ADC_BUF_LEN/2));
+
+        // return ADC data buffer
+        consumer->return_msg(msg);
     }
 }
 
@@ -393,16 +422,17 @@ void setup() {
     init_fan();
     init_flash();
 
-    adc_begin();
+    xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, NULL);
+    xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, NULL);
 
-    adc_set_default_dma(&default_dma_config);
+    adc_begin();
 
     post();
     set_fan(true);
-
-    xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 3, NULL);
 }
 
 void loop() {
+    if (Serial.available() < 1)
+        task_sleep_ms(2);
     cli_loop();
 }

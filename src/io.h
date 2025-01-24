@@ -18,4 +18,7 @@ void set_led(int led, bool state);
 
 void set_laser(int n, bool mode);
 
+// Sleeps given number of ms, FreeRTOS vTaskDelay under the hood
+void task_sleep_ms(uint32_t ms);
+
 #endif

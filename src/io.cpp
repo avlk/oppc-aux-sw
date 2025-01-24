@@ -1,9 +1,10 @@
 #include <Arduino.h>
-#include "board_def.h"
-#include "io.h"
-
+#include <FreeRTOS.h>
+#include <task.h>
 #include <pico.h>
 #include <hardware/structs/padsbank0.h>
+#include "board_def.h"
+#include "io.h"
 
 void gpio_begin(void) {
   // Pinmode: INPUT,OUTPUT,INPUT_PULLUP,INPUT_PULLDOWN
@@ -74,4 +75,8 @@ void set_led(int led, bool state) {
       gpio_set(IO_LED2, state?HIGH:LOW);
       break;
   }
+}
+
+void task_sleep_ms(uint32_t ms) {
+  vTaskDelay(ms / portTICK_PERIOD_MS);
 }

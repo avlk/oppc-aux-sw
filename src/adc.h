@@ -13,7 +13,10 @@ typedef enum {
 
 class IADCDataConsumer {
 public:
-    virtual void adc_consume(const uint16_t *buf, size_t buf_len) = 0;
+    // adc_consume receives (consumes) data during the ISR
+    // returns true if a higher-priority task is woken by processing
+    // and FreeRTOS needs to reschedule
+    virtual bool adc_consume(const uint16_t *buf, size_t buf_len) = 0;
     virtual void adc_event(adc_event_t event) = 0;
 };
 
