@@ -4,9 +4,9 @@
 using namespace filter;
 
 void FIRFilter::write(uint16_t *data, size_t length, size_t step) {
+    auto coefficients_size = m_coefficients.size();
 
-    size_t in_ptr;
-    for (in_ptr = 0; in_ptr < length; in_ptr += step) {
+    for (size_t in_ptr = 0; in_ptr < length; in_ptr += step) {
         // process input data
         m_buffer[m_buffer_pos++] = data[in_ptr];
         if (m_buffer_pos == FILTER_BUFFER_SIZE)
@@ -26,28 +26,88 @@ void FIRFilter::write(uint16_t *data, size_t length, size_t step) {
             continue;
 
         // Only proceed when there is enough data
+        if (m_buffer_fill < coefficients_size)
+            continue;
+
         // Do not calculate filter output when output buffer is full
-        if ((m_buffer_fill >= m_coefficients.size()) && 
-            (m_values.size() < m_max_values)) {
+        if (m_values.size() < m_max_values) {
             // put value into the buffer
             m_values.push_back(process_one());
+            samples_out_cnt++;
+        } else {
+            overflow_cnt++;
         }
     }
+}
+
+void FIRFilter::check_coefficients() {
+    auto coeff_len = m_coefficients.size();
+    auto coeff = m_coefficients.data();
+    bool sym = true;
+
+    // Check if a filter is symmetric
+    for (size_t n = 0; n < coeff_len/2; n++) {
+        if (coeff[n] != coeff[coeff_len - 1 - n]) {
+            sym = false;
+            break;
+        }
+    }
+
+    m_is_symmetric = sym;
 }
 
 
 // Calculates one sample of filter output for the last input value
 float FIRFilter::process_one() {
+    if (m_is_symmetric)
+        return process_one_sym();
+    // Generic filter implementation
     auto coeff_len = m_coefficients.size();
     auto coeff = m_coefficients.data();
 
     float result = 0;
+    int p_data = m_buffer_pos - 1;
     for (size_t n = 0; n < coeff_len; n++) {
-        int p_data = m_buffer_pos - 1 - n;
         if (p_data < 0)
             p_data += FILTER_BUFFER_SIZE;
         result += (float)m_buffer[p_data] * coeff[n];
+        p_data--;
     }
+    return result;
+}
+
+float FIRFilter::process_one_sym() {
+    auto coeff_len = m_coefficients.size();
+    auto coeff = m_coefficients.data();
+
+    // for 7-tap filter:
+    // coeff_len = 7
+    // data pairs for main loop: 
+    // coeff[0] * (data[-1] + data[-7])
+    // coeff[1] * (data[-2] + data[-6])
+    // coeff[2] * (data[-3] + data[-5]) 
+    // last unpaired value:
+    // coeff[3] *  data[-4]
+
+    float result = 0;
+    // Set initial data pointers
+    int p_data1 = m_buffer_pos - 1;
+    int p_data2 = m_buffer_pos - coeff_len;
+    for (size_t n = 0; n < coeff_len/2; n++) {
+        // Wrap pointers over the buffer
+        if (p_data1 < 0)
+            p_data1 += FILTER_BUFFER_SIZE;
+        if (p_data2 < 0)
+            p_data2 += FILTER_BUFFER_SIZE;
+        result += (float)((int)m_buffer[p_data1] + (int)m_buffer[p_data2])  * coeff[n];
+        p_data1--;
+        p_data2++;
+    }
+    // Wrap pointer last time and use it as last value pointer
+    if (p_data1 < 0)
+        p_data1 += FILTER_BUFFER_SIZE;
+    result += (float)m_buffer[p_data1] * coeff[coeff_len/2];
+
     return result;
 }
 

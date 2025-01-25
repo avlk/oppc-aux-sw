@@ -17,23 +17,23 @@ void tearDown(void) {
 // Transition bandwidth  200Hz
 // length = 17
 static std::vector<float> hamming_1000_200_200 {
-    -0.001872521167090275,
-    0.003076697131615380,
-    0.010843204057061970,
-    -0.000000000000000006,
-    -0.040902339055576782,
-    -0.044692984361066959,
-    0.081011737060229752,
-    0.292371308720313250,
-    0.400329795229027119,
-    0.292371308720313305,
-    0.081011737060229766,
-    -0.044692984361066980,
-    -0.040902339055576789,
-    -0.000000000000000006,
-    0.010843204057061974,
-    0.003076697131615383,
-    -0.001872521167090275,
+    -0.001873,
+    0.003077,
+    0.010843,
+    -0.000000,
+    -0.040902,
+    -0.044693,
+    0.081012,
+    0.292371,
+    0.400330,
+    0.292371,
+    0.081012,
+    -0.044693,
+    -0.040902,
+    -0.000000,
+    0.010843,
+    0.003077,
+    -0.001873
 };
 
 static std::vector<float> hamming_1000_200_200_step_response {
@@ -60,16 +60,16 @@ static bool f_nearly_equal(float a, float b) {
     return fabs(a - b) < 0.0005;
 }
 
-static void check_response(float out[17], int step = 1) {
+static void check_response(float out[17]) {
     size_t n;
 #if 0
-    for (n = 0; n < 17; n += step) {
+    for (n = 0; n < 17; n++) {
         char buf[128];
         sprintf(buf, "Sample[%d] = %.3f (expected %.3f)", n, out[n], hamming_1000_200_200_step_response[n]);
         TEST_MESSAGE(buf);
     }
 #endif
-    for (n = 0; n < 17; n += step) {
+    for (n = 0; n < 17; n++) {
         // We have our reference step response with this precision only
         if (!f_nearly_equal(hamming_1000_200_200_step_response[n], out[n])) {
             TEST_ASSERT_EQUAL_FLOAT(hamming_1000_200_200_step_response[n], out[n]);
@@ -77,24 +77,69 @@ static void check_response(float out[17], int step = 1) {
     }
 }
 
-void test_fir_filter_single() {
-    filter::FIRFilter filter(hamming_1000_200_200, 1);
-    uint16_t data[33];
+void test_fir_filter_transfer_func(const std::vector<float> &coeff, bool symm,
+                                   size_t start_buffer_position) {
+    filter::FIRFilter filter(coeff, 1);
+    uint16_t data[32];
     size_t n;
+    float out[17];
 
-    for (n = 0; n < 16; n++) // 16 zeroes
+#if 0
+    for (n = 0; n < hamming_1000_200_200.size(); n++) {
+        char buf[128];
+        sprintf(buf, "Filter[%d] = %f", n, hamming_1000_200_200[n]);
+        TEST_MESSAGE(buf);
+    }
+#endif
+
+    TEST_ASSERT_EQUAL(symm, filter.is_symmetric()); 
+
+    // Push some zeros into the and read back the output,
+    // so that the buffer fill is set at some level (and wrap)
+    // before we start the test
+    while (start_buffer_position--) {
+        data[0] = 0;
+        filter.write(data, 0);
+        while (filter.out_len())
+            filter.read(out, 1);
+    }
+    
+    // pass 16 zeroes
+    for (n = 0; n < 16; n++) 
         data[n] = 0;
-    for (n = 16; n < 33; n++) // then 17 ones - generates 17 outputs
+    filter.write(data, 16);
+    // Drain the output
+    while (filter.out_len())
+        filter.read(out, 1);
+
+    // Pass 17 ones - it is a step function and generates 17 output values
+    for (n = 0; n < 17; n++) 
         data[n] = 1;
-
-    filter.write(data, 33);
-
+    filter.write(data, 17);
+    // Check the output
     TEST_ASSERT_EQUAL_INT(17, filter.out_len()); 
 
-    float out[17];
     TEST_ASSERT_EQUAL_INT(17, filter.read(out, 17));
 
     check_response(out);
+}
+
+void test_fir_filter_symmetric() {
+    test_fir_filter_transfer_func(hamming_1000_200_200, true, 0);
+    test_fir_filter_transfer_func(hamming_1000_200_200, true, 10);
+    test_fir_filter_transfer_func(hamming_1000_200_200, true, filter::FILTER_BUFFER_SIZE/2 - 11);
+    test_fir_filter_transfer_func(hamming_1000_200_200, true, filter::FILTER_BUFFER_SIZE - 1);
+}
+
+void test_fir_filter_asymmetric() {
+    auto coeff = hamming_1000_200_200;
+    // Slightly change coefficients so that it's not symmetric
+    coeff[0] += 0.0001f; 
+    coeff[1] -= 0.0001f; 
+    test_fir_filter_transfer_func(coeff, false, 0);
+    test_fir_filter_transfer_func(coeff, false, 10);
+    test_fir_filter_transfer_func(coeff, false, filter::FILTER_BUFFER_SIZE/2 - 11);
+    test_fir_filter_transfer_func(coeff, false, filter::FILTER_BUFFER_SIZE/2 - 1);
 }
 
 void test_fir_filter_interleave() {
@@ -156,7 +201,8 @@ void test_fir_filter_decimate() {
 int main(int argc, char **argv) {
     UNITY_BEGIN();
 
-    RUN_TEST(test_fir_filter_single);
+    RUN_TEST(test_fir_filter_symmetric);
+    RUN_TEST(test_fir_filter_asymmetric);
     RUN_TEST(test_fir_filter_interleave);
     RUN_TEST(test_fir_filter_decimate);
 
