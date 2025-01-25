@@ -3,14 +3,6 @@
 #include <vector>
 #include <iostream>
 
-void setUp(void) {
-    // set stuff up here
-}
-
-void tearDown(void) {
-    // clean stuff up here
-}
-
 // FIR low pass filter with Hamming window (fiiir.com)
 // nominal sampling rate 1000Hz, 
 // -3dB cutoff frequency 200Hz
@@ -56,23 +48,37 @@ static std::vector<float> hamming_1000_200_200_step_response {
     1.0
 };
 
-static bool f_nearly_equal(float a, float b) {
-    return fabs(a - b) < 0.0005;
+static uint16_t input_one_level = 1024;
+static std::vector<int32_t> expected_step_response;
+void setUp(void) {
+    // set up int32_t step response
+
+    for (size_t n = 0; n < hamming_1000_200_200_step_response.size(); n++) {
+        expected_step_response.push_back((hamming_1000_200_200_step_response[n] * input_one_level));
+    }
 }
 
-static void check_response(float out[17]) {
+void tearDown(void) {
+    // clean stuff up here
+}
+
+static bool nearly_equal(int32_t a, int32_t b) {
+    return abs(a - b) <= 1;
+}
+
+static void check_response(int32_t out[17]) {
     size_t n;
 #if 0
     for (n = 0; n < 17; n++) {
         char buf[128];
-        sprintf(buf, "Sample[%d] = %.3f (expected %.3f)", n, out[n], hamming_1000_200_200_step_response[n]);
+        sprintf(buf, "Sample[%d] = %d (expected %d)", n, out[n], expected_step_response[n]);
         TEST_MESSAGE(buf);
     }
 #endif
     for (n = 0; n < 17; n++) {
         // We have our reference step response with this precision only
-        if (!f_nearly_equal(hamming_1000_200_200_step_response[n], out[n])) {
-            TEST_ASSERT_EQUAL_FLOAT(hamming_1000_200_200_step_response[n], out[n]);
+        if (!nearly_equal(expected_step_response[n], out[n])) {
+            TEST_ASSERT_EQUAL_FLOAT(expected_step_response[n], out[n]);
         }
     }
 }
@@ -82,7 +88,7 @@ void test_fir_filter_transfer_func(const std::vector<float> &coeff, bool symm,
     filter::FIRFilter filter(coeff, 1);
     uint16_t data[32];
     size_t n;
-    float out[17];
+    int32_t out[17];
 
 #if 0
     for (n = 0; n < hamming_1000_200_200.size(); n++) {
@@ -114,7 +120,7 @@ void test_fir_filter_transfer_func(const std::vector<float> &coeff, bool symm,
 
     // Pass 17 ones - it is a step function and generates 17 output values
     for (n = 0; n < 17; n++) 
-        data[n] = 1;
+        data[n] = input_one_level;
     filter.write(data, 17);
     // Check the output
     TEST_ASSERT_EQUAL_INT(17, filter.out_len()); 
@@ -134,8 +140,8 @@ void test_fir_filter_symmetric() {
 void test_fir_filter_asymmetric() {
     auto coeff = hamming_1000_200_200;
     // Slightly change coefficients so that it's not symmetric
-    coeff[0] += 0.0001f; 
-    coeff[1] -= 0.0001f; 
+    coeff[0] += 0.001f; 
+    coeff[1] -= 0.001f; 
     test_fir_filter_transfer_func(coeff, false, 0);
     test_fir_filter_transfer_func(coeff, false, 10);
     test_fir_filter_transfer_func(coeff, false, filter::FILTER_BUFFER_SIZE/2 - 11);
@@ -150,13 +156,13 @@ void test_fir_filter_interleave() {
     for (n = 0; n < 16; n++) // 16 zeroes
         data[n*2+1] = 0;
     for (n = 16; n < 33; n++) // then 17 ones - generates 17 outputs
-        data[n*2+1] = 1;
+        data[n*2+1] = input_one_level;
 
     filter.write(data + 1, 66, 2);
 
     TEST_ASSERT_EQUAL_INT(17, filter.out_len()); 
 
-    float out[17];
+    int32_t out[17];
     TEST_ASSERT_EQUAL_INT(17, filter.read(out, 17));
 
     check_response(out);
@@ -172,13 +178,13 @@ void test_fir_filter_decimate() {
     filter.write(data, 16); // will be completely skipped on the output
 
     for (n = 0; n < 32; n++) // 32 ones
-        data[n] = 1;
+        data[n] = input_one_level;
     filter.write(data, 32); // will generate 32/4=8 samples each
     filter.write(data, 32);
 
     TEST_ASSERT_EQUAL_INT(16, filter.out_len());
 
-    float out[16] = {0};
+    int32_t out[16] = {0};
     TEST_ASSERT_EQUAL_INT(16, filter.read(out, 16));
 
     // [samples for which data is output]
@@ -190,11 +196,11 @@ void test_fir_filter_decimate() {
     // [20] 21 22 23
 
     // With interleaving get samples 0, 4, 8, 16, and then ones
-    TEST_ASSERT_TRUE(f_nearly_equal(out[0], hamming_1000_200_200_step_response[0]));
-    TEST_ASSERT_TRUE(f_nearly_equal(out[1], hamming_1000_200_200_step_response[4]));
-    TEST_ASSERT_TRUE(f_nearly_equal(out[2], hamming_1000_200_200_step_response[8]));
-    TEST_ASSERT_TRUE(f_nearly_equal(out[3], hamming_1000_200_200_step_response[12]));
-    TEST_ASSERT_TRUE(f_nearly_equal(out[4], 1.0f));
+    TEST_ASSERT_TRUE(nearly_equal(out[0], expected_step_response[0]));
+    TEST_ASSERT_TRUE(nearly_equal(out[1], expected_step_response[4]));
+    TEST_ASSERT_TRUE(nearly_equal(out[2], expected_step_response[8]));
+    TEST_ASSERT_TRUE(nearly_equal(out[3], expected_step_response[12]));
+    TEST_ASSERT_TRUE(nearly_equal(out[4], input_one_level));
 }
 
 

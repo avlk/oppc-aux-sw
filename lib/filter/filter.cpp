@@ -1,3 +1,4 @@
+#include <math.h>
 #include "filter.h"
 
 
@@ -40,13 +41,19 @@ void FIRFilter::write(uint16_t *data, size_t length, size_t step) {
     }
 }
 
-void FIRFilter::check_coefficients() {
+void FIRFilter::set_coefficients(std::vector<float> coefficients, int32_t gain) {
+    size_t n;
+    
+    for (n = 0; n < coefficients.size(); n++) {
+        m_coefficients.push_back(round(coefficients[n] * gain));
+    }
+
     auto coeff_len = m_coefficients.size();
     auto coeff = m_coefficients.data();
     bool sym = true;
 
     // Check if a filter is symmetric
-    for (size_t n = 0; n < coeff_len/2; n++) {
+    for (n = 0; n < coeff_len/2; n++) {
         if (coeff[n] != coeff[coeff_len - 1 - n]) {
             sym = false;
             break;
@@ -58,25 +65,25 @@ void FIRFilter::check_coefficients() {
 
 
 // Calculates one sample of filter output for the last input value
-float FIRFilter::process_one() {
+int32_t FIRFilter::process_one() {
     if (m_is_symmetric)
         return process_one_sym();
     // Generic filter implementation
     auto coeff_len = m_coefficients.size();
     auto coeff = m_coefficients.data();
 
-    float result = 0;
+    int32_t result = 0;
     int p_data = m_buffer_pos - 1;
     for (size_t n = 0; n < coeff_len; n++) {
         if (p_data < 0)
             p_data += FILTER_BUFFER_SIZE;
-        result += (float)m_buffer[p_data] * coeff[n];
+        result += (int32_t)m_buffer[p_data] * coeff[n];
         p_data--;
     }
-    return result;
+    return result / m_gain;
 }
 
-float FIRFilter::process_one_sym() {
+int32_t FIRFilter::process_one_sym() {
     auto coeff_len = m_coefficients.size();
     auto coeff = m_coefficients.data();
 
@@ -89,7 +96,7 @@ float FIRFilter::process_one_sym() {
     // last unpaired value:
     // coeff[3] *  data[-4]
 
-    float result = 0;
+    int32_t result = 0;
     // Set initial data pointers
     int p_data1 = m_buffer_pos - 1;
     int p_data2 = m_buffer_pos - coeff_len;
@@ -99,20 +106,34 @@ float FIRFilter::process_one_sym() {
             p_data1 += FILTER_BUFFER_SIZE;
         if (p_data2 < 0)
             p_data2 += FILTER_BUFFER_SIZE;
-        result += (float)((int)m_buffer[p_data1] + (int)m_buffer[p_data2])  * coeff[n];
+        result += ((int32_t)m_buffer[p_data1] + (int32_t)m_buffer[p_data2])  * coeff[n];
         p_data1--;
         p_data2++;
     }
     // Wrap pointer last time and use it as last value pointer
     if (p_data1 < 0)
         p_data1 += FILTER_BUFFER_SIZE;
-    result += (float)m_buffer[p_data1] * coeff[coeff_len/2];
+    result += (int32_t)m_buffer[p_data1] * coeff[coeff_len/2];
 
-    return result;
+    return result / m_gain;
 }
 
 // Returns requested number of samples or less
-size_t FIRFilter::read(float *out, size_t max_length) {
+size_t FIRFilter::read(int32_t *out, size_t max_length) {
+    size_t output_size = std::max(m_values.size(), max_length);
+    if (!output_size)
+        return output_size;
+    // copy to output
+    for (size_t n = 0; n < output_size; n++)
+        out[n] = m_values[n];
+    // free data
+    m_values.erase(m_values.begin(), m_values.begin() + output_size);
+
+    return output_size;
+}
+
+// Returns requested number of samples or less
+size_t FIRFilter::read(uint16_t *out, size_t max_length) {
     size_t output_size = std::max(m_values.size(), max_length);
     if (!output_size)
         return output_size;
