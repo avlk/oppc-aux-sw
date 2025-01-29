@@ -203,6 +203,43 @@ void test_fir_filter_decimate() {
     TEST_ASSERT_TRUE(nearly_equal(out[4], input_one_level));
 }
 
+static std::vector<float> cic_impulse_response_M4_R5 = {
+    /* 0.0016, 0.0064, 0.016,  0.032, */  0.056, 
+    /* 0.0832, 0.1088, 0.128,  0.136, */  0.128,
+    /* 0.1088, 0.0832, 0.056,  0.032, */  0.016,
+    /* 0.0064, 0.0016, 0,  0, */  0,
+};
+
+
+void test_cic_filter_response() {
+    filter::CICFilter filter(4, 5);
+    uint16_t data[20] = {0};
+    size_t n;
+
+    TEST_ASSERT_EQUAL_FLOAT(625.0/512.0, filter.gain());
+
+    data[0] = 8192;
+    auto total_gain = data[0]*filter.gain();
+
+    filter.write(data, 20);
+
+    TEST_ASSERT_EQUAL_INT(4, filter.out_len());
+
+    uint16_t out[4] = {0};
+    TEST_ASSERT_EQUAL_INT(4, filter.read(out, 4));
+
+#if 0
+    for (n = 0; n < 4; n++) {
+        char buf[128];
+        sprintf(buf, "Filter[%d] = %d", n, (int)out[n]);
+        TEST_MESSAGE(buf);
+    }
+#endif
+    for (n = 0; n < 4; n++) {
+        TEST_ASSERT_TRUE(out[n] == (uint16_t)(total_gain*cic_impulse_response_M4_R5[n]));
+    }
+}
+
 
 int main(int argc, char **argv) {
     UNITY_BEGIN();
@@ -211,6 +248,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_fir_filter_asymmetric);
     RUN_TEST(test_fir_filter_interleave);
     RUN_TEST(test_fir_filter_decimate);
+    RUN_TEST(test_cic_filter_response);
 
     UNITY_END();
 }

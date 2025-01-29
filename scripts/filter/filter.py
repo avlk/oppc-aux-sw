@@ -54,6 +54,10 @@ CIC_R=5
 CIC_M=4
 cic_coeff = cic_filter(CIC_R, CIC_M)
 w, h = signal.freqz(cic_coeff, fs=f_s, worN=1024)
+cic_in = [1] + [0]*31
+cic_out = signal.lfilter(cic_coeff, [1], cic_in)
+print("CIC in", cic_in)
+print("CIC out", cic_out)
 
 # Design a lowpass filter so that it's stopband starts after 1/2 Niquist
 # for 2-fold decimation afterwards
@@ -68,7 +72,7 @@ print("FIR stopband", f_fir_stopband)
 print("Final FS after decimation", fs_fir/2)
 
 fir_passband_ripple = 0.3
-N_FIR = fir_find_optimal_N(fs_fir, f_fir_passband, f_fir_stopband, fir_passband_ripple, 75, Nmin=1, Nstep=2, verbose=True)
+N_FIR = fir_find_optimal_N(fs_fir, f_fir_passband, f_fir_stopband, fir_passband_ripple, 75, Nmin=1, Nstep=2, verbose=False)
 print("FIR optimal N", N_FIR)
 (fir_taps, fir_w, fir_h, fir_Rpb, fir_Rsb, fir_Hpb_min, fir_Hpb_max, fir_Hsb_max) = fir_calc_filter(fs_fir, f_fir_passband, f_fir_stopband, fir_passband_ripple, 75, N_FIR)
 print("FIR", fir_taps)
