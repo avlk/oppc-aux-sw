@@ -18,7 +18,7 @@ public:
     }
     ~FIRFilter() = default;
 
-    void write(uint16_t *data, size_t length, size_t step = 1);
+    void write(const uint16_t *data, size_t length, size_t step = 1);
     size_t out_len() { return m_values.size(); }
     size_t read(int32_t *out, size_t max_length);
     size_t read(uint16_t *out, size_t max_length);
@@ -59,7 +59,7 @@ public:
 
     ~CICFilter() = default;
 
-    void write(uint16_t *data, size_t length, size_t step = 1);
+    void write(const uint16_t *data, size_t length, size_t step = 1);
     size_t out_len() { return m_values.size(); }
     size_t read(uint16_t *out, size_t max_length);
     float gain() { return m_gain; }

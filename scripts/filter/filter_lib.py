@@ -233,7 +233,7 @@ def fir_calc_filter(Fs, Fpb, Fsb, Apb, Asb, N, verbose = True):
     w_sb = 1/err_sb
     
     h = signal.remez(
-            N+1,                        # Desired number of taps
+            N,                        # Desired number of taps
             bands,                      # All the band inflection points
             [1,0],                      # Desired gain for each of the bands: 1 in the pass band, 0 in the stop band
             weight=[w_pb, w_sb]
@@ -253,7 +253,7 @@ def fir_calc_filter(Fs, Fpb, Fsb, Apb, Asb, N, verbose = True):
 
     return (h, w, H, Rpb, Rsb, Hpb_min, Hpb_max, Hsb_max)
 
-def fir_find_optimal_N(Fs, Fpb, Fsb, Apb, Asb, Nmin = 1, Nmax = 1000, Nstep=1, verbose = True):
+def fir_find_optimal_N(Fs, Fpb, Fsb, Apb, Asb, Nmin = 3, Nmax = 1000, Nstep=1, verbose = True):
     for N in range(Nmin, Nmax, Nstep):
         if verbose: print("Trying N=%d" % N)
         (h, w, H, Rpb, Rsb, Hpb_min, Hpb_max, Hsb_max) = fir_calc_filter(Fs, Fpb, Fsb, Apb, Asb, N, verbose = verbose)

@@ -14,11 +14,13 @@
 #include "cli.h"
 #include "cli_out.h"
 #include "analog.h"
+#include "filter.h"
 
 // https://wiki.segger.com/How_to_debug_Arduino_a_Sketch_with_Ozone_and_J-Link
 
 
 #define DEF_STACK_SIZE 1024
+void filter_benchmark(size_t rounds);
 
 cli_result_t analog_cmd(size_t argc, const char *argv[]) {
     adc_disable_dma();
@@ -312,6 +314,24 @@ cli_result_t post_cmd(size_t argc, const char *argv[]) {
     return CMD_OK;
 }
 
+cli_result_t benchmark_cmd(size_t argc, const char *argv[]) {
+    size_t n_rounds = 2000;
+
+    TickType_t start = xTaskGetTickCount();
+    filter_benchmark(n_rounds);
+    TickType_t stop = xTaskGetTickCount();
+
+    size_t time_ms = (stop - start) * portTICK_PERIOD_MS;
+
+    cli_info("rounds %d", n_rounds);
+    cli_info("time,ms %d", time_ms);
+    cli_info("samples %d", n_rounds * 128);
+    cli_info("samples/s %d", (n_rounds * 128 * 1000) / time_ms );
+
+    return CMD_OK;
+}
+
+
 cli_result_t test_cmd(size_t argc, const char *argv[]);
 
 static const cli_cmd_t command_list[] = {
@@ -328,13 +348,16 @@ static const cli_cmd_t command_list[] = {
     {laser_cmd, "laser"},
     {post_cmd, "post"},
     {test_cmd, "test"},
-    {flash_strobe_test_cmd, "flashstrobetest"}
+    {flash_strobe_test_cmd, "flashstrobetest"},
+    {benchmark_cmd, "benchmark"}
 };
 
 static int command_num = sizeof(command_list) / sizeof(command_list[0]);
 
+static volatile uint32_t n_dma_samples{0};
 static volatile float avg_voltage[2] = {-1., -1.};
-static volatile uint32_t n_dma_samples = 0;
+static volatile uint32_t filter_in[2] = {0};
+static volatile uint32_t filter_out[2] = {0};
 
 extern int adc_offset;
 cli_result_t test_cmd(size_t argc, const char *argv[]) {
@@ -353,7 +376,11 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
     }
 
     cli_info("adc_offset %d", adc_offset);
-    cli_info("dma samples %d", n_dma_samples);
+    cli_info("dma_samples %d", n_dma_samples);
+    cli_info("filter_in[0] %d", filter_in[0]);
+    cli_info("filter_in[1] %d", filter_in[1]);
+    cli_info("filter_out[0] %d", filter_out[0]);
+    cli_info("filter_out[1] %d", filter_out[1]);
     cli_info("Vavg[0] %f", avg_voltage[0]);
     cli_info("Vavg[1] %f", avg_voltage[1]);
 
@@ -374,20 +401,60 @@ void heartbeat_task(void *pvParameters) {
 }
 
 
+// FIR low pass filter 
+// Fs 48kHz, 
+// Passband 5000Hz
+// Stopband 8000Hz
+// Stopband attenuation 75dB
+// length = 47
+// Fout 16kHz after decimation=3 
+static std::vector<float> fir_lp_48k_5k
+{
+     -0.000393, -0.000876, -0.001113, -0.000412,
+     0.001640, 0.004554, 0.006716, 0.006048,
+     0.001485, -0.005606, -0.011269, -0.010823,
+     -0.002123, 0.011747, 0.022629, 0.021264,
+     0.003557, -0.024493, -0.046941, -0.044427,
+     -0.004546, 0.069449, 0.157022, 0.227790,
+     0.254931, 0.227790, 0.157022, 0.069449,
+     -0.004546, -0.044427, -0.046941, -0.024493,
+     0.003557, 0.021264, 0.022629, 0.011747,
+     -0.002123, -0.010823, -0.011269, -0.005606,
+     0.001485, 0.006048, 0.006716, 0.004554,
+     0.001640, -0.000412, -0.001113, -0.000876,
+     -0.000393,
+};
+
 
 void analog_task(void *pvParameters) {
     auto consumer = std::make_shared<queued_adc::QueuedADCConsumer>();
     adc_dma_config_t default_dma_config = {
         n_inputs: 2,
         inputs: {ADC_CH_S1, ADC_CH_S2}, 
-        sample_freq: 250000,
+        sample_freq: 500000,
         consumer: consumer
     };
+    
+    // First-stage lowpass filters with passband < 50kHz and decimation = 5
+    // Has output rate of 50ksps
+    filter::CICFilter filter_first_a( /* M */4, /* R */5);
+    filter::CICFilter filter_first_b( /* M */4, /* R */5);
+
+    // Second-stage lowpass filters with passband 5kHz and decimation = 3
+    // Has output rate of 16ksps
+    filter::FIRFilter filter_second_a(fir_lp_48k_5k, 3);
+    filter::FIRFilter filter_second_b(fir_lp_48k_5k, 3);
 
     adc_set_default_dma(&default_dma_config);
 
+    float cic_gain{filter_first_a.gain()};
+
     while (true) {
         const queued_adc::adc_queue_msg_t *msg;
+        constexpr size_t out_buf_len{ADC_BUF_LEN/2};
+        size_t len;
+        uint16_t out_buf[out_buf_len];
+
         // receive ADC data buffer
         n_dma_samples++;
         msg = consumer->receive_msg(10);
@@ -395,18 +462,112 @@ void analog_task(void *pvParameters) {
         if (!msg) // should not happen
             continue;
 
-        // .. process
+        // .. process incoming stage
         // here it's for test only
-        int avg[2] = {0};
-        for (size_t n = 0; n < ADC_BUF_LEN; n+=2) {
-            avg[0] += msg->buffer[n];
-            avg[1] += msg->buffer[n+1];
-        }
-        avg_voltage[0] = adc_raw_to_V(avg[0]/(ADC_BUF_LEN/2));
-        avg_voltage[1] = adc_raw_to_V(avg[1]/(ADC_BUF_LEN/2));
+        filter_in[0] += ADC_BUF_LEN/2;
+        filter_in[1] += ADC_BUF_LEN/2;
+
+        filter_first_a.write(msg->buffer, ADC_BUF_LEN, 2);
+        filter_first_b.write(msg->buffer + 1, ADC_BUF_LEN, 2);
 
         // return ADC data buffer
         consumer->return_msg(msg);
+
+        // .. process second stage
+        if (filter_first_a.out_len() > 16) {
+            len = filter_first_a.read(out_buf, out_buf_len);
+            if (len > 0)
+                filter_second_a.write(out_buf, len);
+        }
+
+        if (filter_first_b.out_len() > 16) {
+            len = filter_first_b.read(out_buf, out_buf_len);
+            if (len > 0)
+                filter_second_b.write(out_buf, len);
+        }
+
+
+        // .. consume second stage results
+        if (filter_second_a.out_len() > 16) {
+            int avg{0};
+            len = filter_second_a.read(out_buf, out_buf_len);
+            for (size_t n = 0; n < len; n++)
+                avg += out_buf[n];
+            float v = ((float)avg/len)/cic_gain;            
+            filter_out[0] += len;
+            avg_voltage[0] = adc_raw_to_V(v);
+        }
+        if (filter_second_b.out_len() > 16) {
+            int avg{0};
+            len = filter_second_b.read(out_buf, out_buf_len);
+            for (size_t n = 0; n < len; n++)
+                avg += out_buf[n];
+            float v = ((float)avg/len)/cic_gain;            
+            filter_out[1] += len;
+            avg_voltage[1] = adc_raw_to_V(v);
+        }
+    }
+}
+
+
+void filter_benchmark(size_t rounds) {
+    // First-stage lowpass filters with passband < 50kHz and decimation = 5
+    // Has output rate of 50ksps
+    filter::CICFilter filter_first_a( /* M */4, /* R */5);
+    filter::CICFilter filter_first_b( /* M */4, /* R */5);
+
+    // Second-stage lowpass filters with passband 5kHz and decimation = 3
+    // Has output rate of 16ksps
+    filter::FIRFilter filter_second_a(fir_lp_48k_5k, 3);
+    filter::FIRFilter filter_second_b(fir_lp_48k_5k, 3);
+
+    float cic_gain{filter_first_a.gain()};
+    uint16_t rx_buf[ADC_BUF_LEN];
+    constexpr size_t out_buf_len{ADC_BUF_LEN/2};
+    uint16_t out_buf[out_buf_len];
+
+    memset(rx_buf, 0, sizeof(rx_buf));
+    rx_buf[0] = 1000;
+    rx_buf[1] = 1000;
+    rx_buf[32] = 1000;
+    rx_buf[32] = 1000;
+    rx_buf[64] = 1000;
+    rx_buf[64] = 1000;
+
+    while (rounds--) {
+        size_t len;
+
+        // receive ADC data buffer
+        n_dma_samples++;
+
+        // .. process incoming stage
+
+        filter_first_a.write(rx_buf, ADC_BUF_LEN, 2);
+        filter_first_b.write(rx_buf + 1, ADC_BUF_LEN, 2);
+
+        // .. process second stage
+        if (filter_first_a.out_len() > 16) {
+            len = filter_first_a.read(out_buf, out_buf_len);
+            if (len > 0)
+                filter_second_a.write(out_buf, len);
+        }
+
+        if (filter_first_b.out_len() > 16) {
+            len = filter_first_b.read(out_buf, out_buf_len);
+            if (len > 0)
+                filter_second_b.write(out_buf, len);
+        }
+
+
+        // .. consume second stage results
+        if (filter_second_a.out_len() > 16) {
+            int avg{0};
+            len = filter_second_a.read(out_buf, out_buf_len);
+        }
+        if (filter_second_b.out_len() > 16) {
+            int avg{0};
+            len = filter_second_b.read(out_buf, out_buf_len);
+        }
     }
 }
 
@@ -423,7 +584,7 @@ void setup() {
     init_flash();
 
     xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, NULL);
-    xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, NULL);
+    //xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, NULL);
 
     adc_begin();
 

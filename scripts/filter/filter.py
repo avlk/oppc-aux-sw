@@ -43,6 +43,15 @@ def cic_comp_function(R,M,N, w):
         return 1.0
     return ((M*R)**N)*(np.abs((np.sin(w/(2.*R))) / (np.sin((w*M)/2.)) ) **N)
 
+def print_c_array(vals, value_format="{}", vals_per_line=4):
+    vals_str = list(map(lambda v: value_format.format(v), vals))
+    print("{")
+    while len(vals_str):
+        to_print = vals_str[:vals_per_line]
+        vals_str = vals_str[vals_per_line:]
+        print("    ", ", ".join(to_print) + ",")
+    print("};")
+
 f_s = 240000
 
 # Optimal values:
@@ -72,10 +81,12 @@ print("FIR stopband", f_fir_stopband)
 print("Final FS after decimation", fs_fir/2)
 
 fir_passband_ripple = 0.3
-N_FIR = fir_find_optimal_N(fs_fir, f_fir_passband, f_fir_stopband, fir_passband_ripple, 75, Nmin=1, Nstep=2, verbose=False)
+N_FIR = fir_find_optimal_N(fs_fir, f_fir_passband, f_fir_stopband, fir_passband_ripple, 75, Nmin=3, Nstep=2, verbose=False)
 print("FIR optimal N", N_FIR)
-(fir_taps, fir_w, fir_h, fir_Rpb, fir_Rsb, fir_Hpb_min, fir_Hpb_max, fir_Hsb_max) = fir_calc_filter(fs_fir, f_fir_passband, f_fir_stopband, fir_passband_ripple, 75, N_FIR)
-print("FIR", fir_taps)
+(fir_taps, fir_w, fir_h, fir_Rpb, fir_Rsb, fir_Hpb_min, fir_Hpb_max, fir_Hsb_max) = fir_calc_filter(
+            fs_fir, f_fir_passband, f_fir_stopband, fir_passband_ripple, 75, N_FIR)
+print("FIR taps")
+print_c_array(fir_taps, value_format="{:.6f}")
 
 fig, ax = plt.subplots(tight_layout=True)
 ax.set_title(f"Frequency Response of CIC Filter (R={CIC_R}, M={CIC_M}) and FIR Filter (N={N_FIR}, D={fir_downsample})")

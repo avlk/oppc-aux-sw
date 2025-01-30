@@ -4,7 +4,7 @@
 
 using namespace filter;
 
-void FIRFilter::write(uint16_t *data, size_t length, size_t step) {
+void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
     auto coefficients_size = m_coefficients.size();
 
     for (size_t in_ptr = 0; in_ptr < length; in_ptr += step) {
@@ -121,7 +121,7 @@ int32_t FIRFilter::process_one_sym() {
 
 // Returns requested number of samples or less
 size_t FIRFilter::read(int32_t *out, size_t max_length) {
-    size_t output_size = std::max(m_values.size(), max_length);
+    size_t output_size = std::min(m_values.size(), max_length);
     if (!output_size)
         return output_size;
     // copy to output
@@ -135,7 +135,7 @@ size_t FIRFilter::read(int32_t *out, size_t max_length) {
 
 // Returns requested number of samples or less
 size_t FIRFilter::read(uint16_t *out, size_t max_length) {
-    size_t output_size = std::max(m_values.size(), max_length);
+    size_t output_size = std::min(m_values.size(), max_length);
     if (!output_size)
         return output_size;
     // saturated copy to output
@@ -153,7 +153,7 @@ size_t FIRFilter::read(uint16_t *out, size_t max_length) {
     return output_size;
 }
 
-void CICFilter::write(uint16_t *data, size_t length, size_t step) {
+void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
     size_t n, ord;
 
     for (n = 0; n < length; n += step) {
@@ -192,7 +192,7 @@ void CICFilter::write(uint16_t *data, size_t length, size_t step) {
 
 // Returns requested number of samples or less
 size_t CICFilter::read(uint16_t *out, size_t max_length) {
-    size_t output_size = std::max(m_values.size(), max_length);
+    size_t output_size = std::min(m_values.size(), max_length);
     if (!output_size)
         return output_size;
     // saturated copy to output
