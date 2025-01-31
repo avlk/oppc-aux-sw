@@ -187,9 +187,6 @@ void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
         }
 
         // Do not calculate filter output when output buffer is full
-        // if (m_values.size() < m_max_values) {
-        //     // put value into the buffer
-        //     m_values.push_back(stage_in);
         if (m_out_cnt < FILTER_OUTPUT_LEN) {
             m_out_buf[m_out_cnt++] = stage_in;
         } else
@@ -203,21 +200,6 @@ void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
 
 // Returns requested number of samples or less
 size_t CICFilter::read(uint16_t *out, size_t max_length) {
-    // size_t output_size = std::min(m_values.size(), max_length);
-    // if (!output_size)
-    //     return output_size;
-    // // saturated copy to output
-    // for (size_t n = 0; n < output_size; n++) {
-    //     auto val = m_values[n] >> m_attenuate_shift;
-    //     if (val < 0)
-    //         val = 0;
-    //     if (val > UINT16_MAX) 
-    //         val = UINT16_MAX;
-    //     out[n] = val;
-    // }
-    // // free data
-    // m_values.erase(m_values.begin(), m_values.begin() + output_size);
-
     size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
         return output_size;

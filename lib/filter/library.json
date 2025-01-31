@@ -1,0 +1,10 @@
+{
+    "name": "oppc-filters",
+    "version": "0.0.1",
+    "build": {
+        "flags": [
+            "-O3"
+        ],
+        "extraScript": "generate-disassembly.py"
+    }
+}
