@@ -5,7 +5,7 @@
 
 namespace filter {
 
-constexpr size_t FILTER_OUTPUT_LEN{32};
+constexpr size_t FILTER_OUTPUT_LEN{128};
 constexpr size_t MAX_FILTER_ORDER{128};
 constexpr size_t FILTER_BUFFER_SIZE{MAX_FILTER_ORDER};
 
@@ -60,22 +60,21 @@ public:
     ~CICFilter() = default;
 
     void write(const uint16_t *data, size_t length, size_t step = 1);
-    size_t out_len() { return m_values.size(); }
+    size_t out_len() { return m_out_cnt; }
     size_t read(uint16_t *out, size_t max_length);
     float gain() { return m_gain; }
 
     uint32_t overflow_cnt{0};
     uint32_t samples_out_cnt{0};
 private:
-    int32_t     m_int_delay[MAX_CIC_ORDER]{};
-    int32_t     m_comb_delay[MAX_CIC_ORDER]{};
+    int32_t     m_int_state[MAX_CIC_ORDER*2]{};
     uint32_t    m_attenuate_shift{1};
     float       m_gain;
     size_t      m_data_counter{0};
     size_t      m_decimation_factor{1};
     size_t      m_order{1};
-    size_t      m_max_values{FILTER_OUTPUT_LEN};
-    std::deque<uint32_t> m_values;
+    size_t      m_out_cnt{0};
+    int32_t     m_out_buf[FILTER_OUTPUT_LEN];
 };
 
 }

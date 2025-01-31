@@ -20,7 +20,7 @@
 
 
 #define DEF_STACK_SIZE 1024
-void filter_benchmark(size_t rounds);
+void filter_benchmark(size_t rounds, int stage);
 
 cli_result_t analog_cmd(size_t argc, const char *argv[]) {
     adc_disable_dma();
@@ -316,13 +316,19 @@ cli_result_t post_cmd(size_t argc, const char *argv[]) {
 
 cli_result_t benchmark_cmd(size_t argc, const char *argv[]) {
     size_t n_rounds = 2000;
+    int stage = 0;
+
+    if (argc == 1) {
+        stage = atoi(argv[0]);
+    }
 
     TickType_t start = xTaskGetTickCount();
-    filter_benchmark(n_rounds);
+    filter_benchmark(n_rounds, stage);
     TickType_t stop = xTaskGetTickCount();
 
     size_t time_ms = (stop - start) * portTICK_PERIOD_MS;
 
+    cli_info("benchmark %d", stage);
     cli_info("rounds %d", n_rounds);
     cli_info("time,ms %d", time_ms);
     cli_info("samples %d", n_rounds * 128);
@@ -509,30 +515,60 @@ void analog_task(void *pvParameters) {
     }
 }
 
+// baseline
+// benchmark 0
+// [I] rounds 2000
+// [I] time,ms 441
+// [I] samples 256000
+// [I] samples/s 580498
+// benchmark 1
+// [I] rounds 2000
+// [I] time,ms 229
+// [I] samples 256000
+// [I] samples/s 1117903
 
-void filter_benchmark(size_t rounds) {
+// After 1st CIC optimisation -> +12.5%
+// [I] rounds 2000
+// [I] time,ms 392
+// [I] samples 256000
+// [I] samples/s 653061
+// [I] benchmark 1
+// [I] rounds 2000
+// [I] time,ms 214
+// [I] samples 256000
+// [I] samples/s 1196261
+
+void filter_benchmark(size_t rounds, int stage) {
     // First-stage lowpass filters with passband < 50kHz and decimation = 5
     // Has output rate of 50ksps
-    filter::CICFilter filter_first_a( /* M */4, /* R */5);
-    filter::CICFilter filter_first_b( /* M */4, /* R */5);
+   filter::CICFilter filter_first( /* M */4, /* R */5);
 
     // Second-stage lowpass filters with passband 5kHz and decimation = 3
     // Has output rate of 16ksps
-    filter::FIRFilter filter_second_a(fir_lp_48k_5k, 3);
-    filter::FIRFilter filter_second_b(fir_lp_48k_5k, 3);
+    filter::FIRFilter filter_second(fir_lp_48k_5k, 3);
 
-    float cic_gain{filter_first_a.gain()};
     uint16_t rx_buf[ADC_BUF_LEN];
-    constexpr size_t out_buf_len{ADC_BUF_LEN/2};
+    constexpr size_t out_buf_len{ADC_BUF_LEN};
     uint16_t out_buf[out_buf_len];
 
     memset(rx_buf, 0, sizeof(rx_buf));
     rx_buf[0] = 1000;
     rx_buf[1] = 1000;
     rx_buf[32] = 1000;
-    rx_buf[32] = 1000;
+    rx_buf[33] = 1000;
     rx_buf[64] = 1000;
-    rx_buf[64] = 1000;
+    rx_buf[65] = 1000;
+
+    // if (stage == 4) {
+    //     while (rounds--) {
+    //         int32_t sum{0};
+    //         for (size_t n = 0; n < ADC_BUF_LEN; n++) {
+    //             sum += rx_buf[n];
+    //         }
+    //         rx_buf[3] = sum & 0xFFFF;
+    //     }
+    //     return;
+    // }
 
     while (rounds--) {
         size_t len;
@@ -542,31 +578,27 @@ void filter_benchmark(size_t rounds) {
 
         // .. process incoming stage
 
-        filter_first_a.write(rx_buf, ADC_BUF_LEN, 2);
-        filter_first_b.write(rx_buf + 1, ADC_BUF_LEN, 2);
+        filter_first.write(rx_buf, ADC_BUF_LEN);
+
+        if (stage == 1)
+            continue;
 
         // .. process second stage
-        if (filter_first_a.out_len() > 16) {
-            len = filter_first_a.read(out_buf, out_buf_len);
+        if (filter_first.out_len() > 64) {
+            len = filter_first.read(out_buf, out_buf_len);
+            if (stage == 2)
+                continue;
             if (len > 0)
-                filter_second_a.write(out_buf, len);
+                filter_second.write(out_buf, len);
         }
 
-        if (filter_first_b.out_len() > 16) {
-            len = filter_first_b.read(out_buf, out_buf_len);
-            if (len > 0)
-                filter_second_b.write(out_buf, len);
-        }
-
+        if (stage == 3)
+            continue;
 
         // .. consume second stage results
-        if (filter_second_a.out_len() > 16) {
+        if (filter_second.out_len() > 64) {
             int avg{0};
-            len = filter_second_a.read(out_buf, out_buf_len);
-        }
-        if (filter_second_b.out_len() > 16) {
-            int avg{0};
-            len = filter_second_b.read(out_buf, out_buf_len);
+            len = filter_second.read(out_buf, out_buf_len);
         }
     }
 }

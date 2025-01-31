@@ -1,4 +1,5 @@
 #include <math.h>
+#include <string.h>
 #include "filter.h"
 
 
@@ -155,57 +156,85 @@ size_t FIRFilter::read(uint16_t *out, size_t max_length) {
 
 void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
     size_t n, ord;
+    int32_t stage_in, stage_out;
+    uint32_t err_cnt{0};
+    auto data_counter = m_data_counter;
 
     for (n = 0; n < length; n += step) {
+        int32_t *state = &m_int_state[0];
+
         // Do integrator operation
-        int32_t stage_in = data[n];
-        for (ord = 0; ord < m_order; ord++) {
-            int32_t stage_out = stage_in + m_int_delay[ord];
-            m_int_delay[ord] = stage_out;
+        stage_in = data[n];
+        ord = m_order;
+        while (ord--) {
+            stage_out = stage_in + *state;
+            *state++ = stage_out;
             stage_in = stage_out; 
         }
+        
         // Do decimation
-        m_data_counter++;
-        if (m_data_counter < m_decimation_factor)
+        if (++data_counter < m_decimation_factor)
             continue;
         else
-            m_data_counter = 0;
+            data_counter = 0;
+            
         // Do comb
-        for (ord = 0; ord < m_order; ord++) {
-            int32_t stage_out = stage_in - m_comb_delay[ord];
-            m_comb_delay[ord] = stage_in;
+        ord = m_order;
+        while (ord--) {
+            stage_out = stage_in - *state;
+            *state++ = stage_in;
             stage_in = stage_out;
         }
 
         // Do not calculate filter output when output buffer is full
-        if (m_values.size() < m_max_values) {
-            // put value into the buffer
-            // TODO: here we have to downscale it (1/m_decimation_factor)
-            m_values.push_back(stage_in);
-            samples_out_cnt++;
-        } else {
-            overflow_cnt++;
-        }
-
+        // if (m_values.size() < m_max_values) {
+        //     // put value into the buffer
+        //     m_values.push_back(stage_in);
+        if (m_out_cnt < FILTER_OUTPUT_LEN) {
+            m_out_buf[m_out_cnt++] = stage_in;
+        } else
+            err_cnt++;
     }
+
+    m_data_counter = data_counter;
+    overflow_cnt += err_cnt;
+    samples_out_cnt += length/step - err_cnt;
 }
 
 // Returns requested number of samples or less
 size_t CICFilter::read(uint16_t *out, size_t max_length) {
-    size_t output_size = std::min(m_values.size(), max_length);
+    // size_t output_size = std::min(m_values.size(), max_length);
+    // if (!output_size)
+    //     return output_size;
+    // // saturated copy to output
+    // for (size_t n = 0; n < output_size; n++) {
+    //     auto val = m_values[n] >> m_attenuate_shift;
+    //     if (val < 0)
+    //         val = 0;
+    //     if (val > UINT16_MAX) 
+    //         val = UINT16_MAX;
+    //     out[n] = val;
+    // }
+    // // free data
+    // m_values.erase(m_values.begin(), m_values.begin() + output_size);
+
+    size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
         return output_size;
-    // saturated copy to output
     for (size_t n = 0; n < output_size; n++) {
-        auto val = m_values[n] >> m_attenuate_shift;
+        auto val = m_out_buf[n] >> m_attenuate_shift;
         if (val < 0)
             val = 0;
         if (val > UINT16_MAX) 
             val = UINT16_MAX;
         out[n] = val;
     }
-    // free data
-    m_values.erase(m_values.begin(), m_values.begin() + output_size);
+    if (output_size == m_out_cnt)
+        m_out_cnt = 0;
+    else {
+        memmove(m_out_buf, &m_out_buf[output_size], sizeof(m_out_buf[0]) * (m_out_cnt - output_size));
+        m_out_cnt = m_out_cnt - output_size;
+    }
 
     return output_size;
 }
