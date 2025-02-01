@@ -66,15 +66,16 @@ static bool nearly_equal(int32_t a, int32_t b) {
     return abs(a - b) <= 1;
 }
 
-static void check_response(int32_t out[17]) {
+static void check_response(int32_t out[17], bool debug=false) {
     size_t n;
-#if 0
-    for (n = 0; n < 17; n++) {
-        char buf[128];
-        sprintf(buf, "Sample[%d] = %d (expected %d)", n, out[n], expected_step_response[n]);
-        TEST_MESSAGE(buf);
+
+    if (debug) {
+        for (n = 0; n < 17; n++) {
+            char buf[128];
+            sprintf(buf, "Sample[%d] = %d (expected %d)", n, out[n], expected_step_response[n]);
+            TEST_MESSAGE(buf);
+        }
     }
-#endif
     for (n = 0; n < 17; n++) {
         // We have our reference step response with this precision only
         if (!nearly_equal(expected_step_response[n], out[n])) {
@@ -153,29 +154,23 @@ void test_fir_filter_interleave() {
     uint16_t data[66] = {0};
     size_t n;
 
-    for (n = 0; n < 16; n++) // 16 zeroes
-        data[n*2+1] = 0;
-    for (n = 16; n < 33; n++) // then 17 ones - generates 17 outputs
+    for (n = 0; n < 17; n++) // 17 ones - generates 17 outputs
         data[n*2+1] = input_one_level;
 
-    filter.write(data + 1, 66, 2);
+    filter.write(data + 1, 34, 2);
 
     TEST_ASSERT_EQUAL_INT(17, filter.out_len()); 
 
     int32_t out[17];
     TEST_ASSERT_EQUAL_INT(17, filter.read(out, 17));
 
-    check_response(out);
+    check_response(out, true);
 }
 
 void test_fir_filter_decimate() {
     filter::FIRFilter filter(hamming_1000_200_200, 4);
     uint16_t data[32] = {0}; 
     size_t n;
-
-    for (n = 0; n < 16; n++) // 16 zeroes
-        data[n] = 0;
-    filter.write(data, 16); // will be completely skipped on the output
 
     for (n = 0; n < 32; n++) // 32 ones
         data[n] = input_one_level;
@@ -196,10 +191,11 @@ void test_fir_filter_decimate() {
     // [20] 21 22 23
 
     // With interleaving get samples 0, 4, 8, 16, and then ones
-    TEST_ASSERT_TRUE(nearly_equal(out[0], expected_step_response[0]));
-    TEST_ASSERT_TRUE(nearly_equal(out[1], expected_step_response[4]));
-    TEST_ASSERT_TRUE(nearly_equal(out[2], expected_step_response[8]));
-    TEST_ASSERT_TRUE(nearly_equal(out[3], expected_step_response[12]));
+    int offset = 0;
+    TEST_ASSERT_TRUE(nearly_equal(out[0], expected_step_response[offset + 0]));
+    TEST_ASSERT_TRUE(nearly_equal(out[1], expected_step_response[offset + 4]));
+    TEST_ASSERT_TRUE(nearly_equal(out[2], expected_step_response[offset + 8]));
+    TEST_ASSERT_TRUE(nearly_equal(out[3], expected_step_response[offset + 12]));
     TEST_ASSERT_TRUE(nearly_equal(out[4], input_one_level));
 }
 

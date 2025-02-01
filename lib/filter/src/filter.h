@@ -15,7 +15,8 @@ class FIRFilter final {
 public:
     FIRFilter(std::vector<float> coefficients, size_t decimation_factor,
               uint32_t gain_bits = 12) 
-        : m_decimation_factor{decimation_factor}, m_gain_bits(gain_bits) {
+        : m_decimation_factor{decimation_factor}, m_gain_bits(gain_bits),
+        m_data_counter{1} {
         set_coefficients(coefficients, gain_bits);
     }
     ~FIRFilter() = default;
@@ -24,18 +25,20 @@ public:
     size_t out_len() { return m_values.size(); }
     size_t read(int32_t *out, size_t max_length);
     size_t read(uint16_t *out, size_t max_length);
-
+    void out_flush() { m_values.clear(); }
+    // debug functions
+    void set_symmetric(bool sym) { m_is_symmetric = sym; }
+    void set_buffer_pos(size_t pos) { m_buffer_pos = std::min(pos, FILTER_BUFFER_SIZE-1);};
+    
     bool is_symmetric() { return m_is_symmetric; }
     uint32_t overflow_cnt{0};
-    uint32_t samples_out_cnt{0};
 private:
     std::vector<int32_t> m_coefficients;
     std::deque<int32_t> m_values;
     size_t      m_decimation_factor{1};
-    uint16_t    m_buffer[FILTER_BUFFER_SIZE];
+    uint16_t    m_buffer[FILTER_BUFFER_SIZE]{};
     size_t      m_buffer_pos{0};
-    size_t      m_buffer_fill{0};
-    size_t      m_input_cnt{0};
+    size_t      m_data_counter{0};
     size_t      m_max_values{FILTER_OUTPUT_LEN};
     bool        m_is_symmetric{false};
     uint32_t    m_gain_bits;

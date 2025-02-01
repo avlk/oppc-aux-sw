@@ -10,13 +10,15 @@ using namespace filter;
 #define unlikely(x)     __builtin_expect((x),0)
 
 #ifndef PLATFORM_NATIVE
-#define EXECUTE_FROM_RAM __attribute__ ((long_call, section (".time_critical"))) 
+#define EXECUTE_FROM_RAM(subsection) __attribute__ ((long_call, section (".time_critical." subsection))) 
 #else
-#define EXECUTE_FROM_RAM
+#define EXECUTE_FROM_RAM(subsection)
 #endif
 
+EXECUTE_FROM_RAM("fir")
 void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
     auto coefficients_size = m_coefficients.size();
+    auto data_counter = m_data_counter;
 
     for (size_t in_ptr = 0; in_ptr < length; in_ptr += step) {
         // process input data
@@ -24,32 +26,23 @@ void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
         if (m_buffer_pos == FILTER_BUFFER_SIZE)
             m_buffer_pos = 0;
 
-        if (m_buffer_fill < FILTER_BUFFER_SIZE)
-            m_buffer_fill++;
-
         // Output data each m_decimation_factor'th input cycle
-        bool sample_output = m_input_cnt == 0;
-        // Count number of input data, wrap over decimation factor
-        m_input_cnt++;
-        if (m_input_cnt == m_decimation_factor)
-            m_input_cnt = 0;
-
-        if (!sample_output)
-            continue;
-
-        // Only proceed when there is enough data
-        if (m_buffer_fill < coefficients_size)
+        // data counter is 
+        if (likely(--data_counter == 0))
+            data_counter = m_decimation_factor;
+        else
             continue;
 
         // Do not calculate filter output when output buffer is full
         if (m_values.size() < m_max_values) {
             // put value into the buffer
             m_values.push_back(process_one());
-            samples_out_cnt++;
         } else {
             overflow_cnt++;
         }
     }
+
+    m_data_counter = data_counter;
 }
 
 void FIRFilter::set_coefficients(std::vector<float> coefficients, uint32_t gain_bits) {
@@ -77,6 +70,7 @@ void FIRFilter::set_coefficients(std::vector<float> coefficients, uint32_t gain_
 
 
 // Calculates one sample of filter output for the last input value
+EXECUTE_FROM_RAM("fir")
 int32_t FIRFilter::process_one() {
     if (m_is_symmetric)
         return process_one_sym();
@@ -95,6 +89,7 @@ int32_t FIRFilter::process_one() {
     return result >> m_gain_bits;
 }
 
+EXECUTE_FROM_RAM("fir")
 int32_t FIRFilter::process_one_sym() {
     auto coeff_len = m_coefficients.size();
     auto coeff = m_coefficients.data();
@@ -111,20 +106,22 @@ int32_t FIRFilter::process_one_sym() {
     int32_t result = 0;
     // Set initial data pointers
     int p_data1 = m_buffer_pos - 1;
-    int p_data2 = m_buffer_pos - coeff_len;
-    for (size_t n = 0; n < coeff_len/2; n++) {
-        // Wrap pointers over the buffer
-        if (p_data1 < 0)
-            p_data1 += FILTER_BUFFER_SIZE;
-        if (p_data2 < 0)
-            p_data2 += FILTER_BUFFER_SIZE;
-        result += ((int32_t)m_buffer[p_data1] + (int32_t)m_buffer[p_data2])  * coeff[n];
-        p_data1--;
-        p_data2++;
-    }
-    // Wrap pointer last time and use it as last value pointer
     if (p_data1 < 0)
         p_data1 += FILTER_BUFFER_SIZE;
+
+    int p_data2 = m_buffer_pos - coeff_len;
+    if (p_data2 < 0)
+        p_data2 += FILTER_BUFFER_SIZE;
+
+    for (size_t n = 0; n < coeff_len/2; n++) {
+        // Wrap pointers over the buffer
+        result += ((int32_t)m_buffer[p_data1] + (int32_t)m_buffer[p_data2])  * coeff[n];
+        if (--p_data1 < 0)
+            p_data1 += FILTER_BUFFER_SIZE;
+        if (++p_data2 == FILTER_BUFFER_SIZE)
+            p_data2 = 0;
+    }
+    // Wrap pointer last time and use it as last value pointer
     result += (int32_t)m_buffer[p_data1] * coeff[coeff_len/2];
 
     return result >> m_gain_bits;
@@ -165,7 +162,7 @@ size_t FIRFilter::read(uint16_t *out, size_t max_length) {
 }
 
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
-EXECUTE_FROM_RAM
+EXECUTE_FROM_RAM("cic")
 void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t length, size_t step) {
     size_t n, ord;
     int32_t stage_in;
@@ -209,7 +206,7 @@ void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t len
 
 // Returns requested number of samples or less
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
-EXECUTE_FROM_RAM
+EXECUTE_FROM_RAM("cic")
 size_t CICFilter<order, decimation_factor>::read(uint16_t *out, size_t max_length) {
     size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
