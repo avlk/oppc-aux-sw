@@ -212,7 +212,7 @@ static std::vector<float> cic_impulse_response_M4_R5 = {
 
 
 void test_cic_filter_response() {
-    filter::CICFilter filter(4, 5);
+    filter::CICFilter<4,5> filter;
     uint16_t data[20] = {0};
     size_t n;
 

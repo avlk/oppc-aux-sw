@@ -443,8 +443,8 @@ void analog_task(void *pvParameters) {
     
     // First-stage lowpass filters with passband < 50kHz and decimation = 5
     // Has output rate of 50ksps
-    filter::CICFilter filter_first_a( /* M */4, /* R */5);
-    filter::CICFilter filter_first_b( /* M */4, /* R */5);
+    filter::CICFilter</* M */4, /* R */5> filter_first_a{};
+    filter::CICFilter</* M */4, /* R */5> filter_first_b{};
 
     // Second-stage lowpass filters with passband 5kHz and decimation = 3
     // Has output rate of 16ksps
@@ -527,42 +527,27 @@ void analog_task(void *pvParameters) {
 // [I] samples 256000
 // [I] samples/s 1117903
 
-// After 1st CIC optimisation -> +12.5%
+
+// current result
+// [I] benchmark 0
 // [I] rounds 2000
-// [I] time,ms 392
+// [I] time,ms 182
 // [I] samples 256000
-// [I] samples/s 653061
+// [I] samples/s 1406593
 // [I] benchmark 1
 // [I] rounds 2000
-// [I] time,ms 214
+// [I] time,ms 46
 // [I] samples 256000
-// [I] samples/s 1196261
+// [I] samples/s 5565217
 
 
-// C
-// [I] benchmark 1
-// [I] rounds 2000
-// [I] time,ms 126
-// [I] samples 256000
-// [I] samples/s 2031746
-// [R] OK
-// [ ] READY
-// [ ] Running cmd benchmark
-// [I] benchmark 2
-// [I] rounds 2000
-// [I] time,ms 134
-// [I] samples 256000
-// [I] samples/s 1910447
-// [R] OK
-// C++
-
-#define CIC_C 1
+//#define CIC_C 1
 
 void filter_benchmark(size_t rounds, int stage) {
     // First-stage lowpass filters with passband < 50kHz and decimation = 5
     // Has output rate of 50ksps
 #ifndef CIC_C
-    filter::CICFilter filter_first( /* M */4, /* R */5);
+    filter::CICFilter</* M */4, /* R */5> filter_first;
 #else
     cic_filter_t filter_first;
     cic_init(&filter_first, /* M */4, /* R */5);

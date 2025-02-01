@@ -164,8 +164,9 @@ size_t FIRFilter::read(uint16_t *out, size_t max_length) {
     return output_size;
 }
 
+template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
 EXECUTE_FROM_RAM
-void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
+void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t length, size_t step) {
     size_t n, ord;
     int32_t stage_in;
     uint32_t data_counter = m_data_counter;
@@ -175,7 +176,7 @@ void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
 
         // Do integrator operation
         stage_in = data[n];
-        ord = m_order;
+        ord = order;
         while (likely(ord--)) {
             stage_in = *state++ = stage_in + *state;
         }
@@ -183,12 +184,12 @@ void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
         
         // Do decimation
         if (likely(--data_counter == 0))
-            data_counter = m_decimation_factor;
+            data_counter = decimation_factor;
         else
             continue;
 
         // Do comb
-        ord = m_order;
+        ord = order;
         while (likely(ord--)) {
             int32_t prev_in = stage_in;
             stage_in = stage_in - *state;
@@ -207,8 +208,9 @@ void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
 }
 
 // Returns requested number of samples or less
+template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
 EXECUTE_FROM_RAM
-size_t CICFilter::read(uint16_t *out, size_t max_length) {
+size_t CICFilter<order, decimation_factor>::read(uint16_t *out, size_t max_length) {
     size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
         return output_size;
@@ -229,3 +231,7 @@ size_t CICFilter::read(uint16_t *out, size_t max_length) {
 
     return output_size;
 }
+
+
+// Pre-instantiate templated classes for requested cases
+template class CICFilter<4,5>;
