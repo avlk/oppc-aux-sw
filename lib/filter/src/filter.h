@@ -49,7 +49,7 @@ constexpr size_t MAX_CIC_ORDER{8};
 
 class CICFilter final {
 public:
-    CICFilter(uint32_t order /* M */, uint32_t downsample/* R */) 
+    CICFilter(uint8_t order /* M */, uint8_t downsample/* R */) 
         : m_decimation_factor{downsample}, m_order(order) {  
         uint32_t n = 1;
         while (order--)
@@ -57,6 +57,7 @@ public:
         uint32_t actual_gain = n; 
         m_attenuate_shift = 32 - __builtin_clz(n) - 1;
         m_gain = (float)actual_gain / (1UL << m_attenuate_shift);
+        m_data_counter = m_decimation_factor;
     }
 
     ~CICFilter() = default;
@@ -66,17 +67,17 @@ public:
     size_t read(uint16_t *out, size_t max_length);
     float gain() { return m_gain; }
 
-    uint32_t overflow_cnt{0};
-    uint32_t samples_out_cnt{0};
 private:
     int32_t     m_int_state[MAX_CIC_ORDER*2]{};
-    uint32_t    m_attenuate_shift{1};
-    float       m_gain;
-    size_t      m_data_counter{0};
-    size_t      m_decimation_factor{1};
-    size_t      m_order{1};
+    uint8_t     m_order{1};
+    uint8_t     m_decimation_factor{1};
+    uint8_t     m_data_counter;
+    uint8_t     m_attenuate_shift{1};
     size_t      m_out_cnt{0};
     int32_t     m_out_buf[FILTER_OUTPUT_LEN];
+    float       m_gain;
+public:
+    uint32_t overflow_cnt{0};
 };
 
 }

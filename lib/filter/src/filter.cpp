@@ -5,8 +5,15 @@
 
 using namespace filter;
 
-#define EXECUTE_FROM_RAM __attribute__ ((long_call, section (".time_critical"))) 
 
+#define likely(x)       __builtin_expect((x),1)
+#define unlikely(x)     __builtin_expect((x),0)
+
+#ifndef PLATFORM_NATIVE
+#define EXECUTE_FROM_RAM __attribute__ ((long_call, section (".time_critical"))) 
+#else
+#define EXECUTE_FROM_RAM
+#endif
 
 void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
     auto coefficients_size = m_coefficients.size();
@@ -157,11 +164,11 @@ size_t FIRFilter::read(uint16_t *out, size_t max_length) {
     return output_size;
 }
 
+EXECUTE_FROM_RAM
 void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
     size_t n, ord;
-    int32_t stage_in, stage_out;
-    uint32_t err_cnt{0};
-    auto data_counter = m_data_counter;
+    int32_t stage_in;
+    uint32_t data_counter = m_data_counter;
 
     for (n = 0; n < length; n += step) {
         int32_t *state = &m_int_state[0];
@@ -169,39 +176,38 @@ void CICFilter::write(const uint16_t *data, size_t length, size_t step) {
         // Do integrator operation
         stage_in = data[n];
         ord = m_order;
-        while (ord--) {
-            stage_out = stage_in + *state;
-            *state++ = stage_out;
-            stage_in = stage_out; 
+        while (likely(ord--)) {
+            stage_in = *state++ = stage_in + *state;
         }
+
         
         // Do decimation
-        if (++data_counter < m_decimation_factor)
-            continue;
+        if (likely(--data_counter == 0))
+            data_counter = m_decimation_factor;
         else
-            data_counter = 0;
-            
+            continue;
+
         // Do comb
         ord = m_order;
-        while (ord--) {
-            stage_out = stage_in - *state;
-            *state++ = stage_in;
-            stage_in = stage_out;
+        while (likely(ord--)) {
+            int32_t prev_in = stage_in;
+            stage_in = stage_in - *state;
+            *state++ = prev_in;
         }
 
         // Do not calculate filter output when output buffer is full
-        if (m_out_cnt < FILTER_OUTPUT_LEN) {
+        if (likely(m_out_cnt < FILTER_OUTPUT_LEN)) {
             m_out_buf[m_out_cnt++] = stage_in;
-        } else
-            err_cnt++;
+        } else {
+            overflow_cnt++;
+        }
     }
 
     m_data_counter = data_counter;
-    overflow_cnt += err_cnt;
-    samples_out_cnt += length/step - err_cnt;
 }
 
 // Returns requested number of samples or less
+EXECUTE_FROM_RAM
 size_t CICFilter::read(uint16_t *out, size_t max_length) {
     size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)

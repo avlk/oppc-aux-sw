@@ -1,6 +1,5 @@
 #include <unity.h>
 #include "filter.h"
-#include "filter-c.h"
 #include <vector>
 #include <iostream>
 

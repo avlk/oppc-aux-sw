@@ -6,7 +6,11 @@
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
 
+#ifndef PLATFORM_NATIVE
 #define EXECUTE_FROM_RAM __attribute__ ((long_call, section (".time_critical"))) 
+#else
+#define EXECUTE_FROM_RAM
+#endif
 
 void cic_init(cic_filter_t *filter,
               uint32_t order /* M */, 
@@ -25,11 +29,9 @@ void cic_init(cic_filter_t *filter,
 }
 
 EXECUTE_FROM_RAM 
-void cic_write(cic_filter_t *filter, const uint16_t *data, 
-               size_t length, size_t step) {
+void cic_write(cic_filter_t *filter, const uint16_t *data, size_t length, size_t step) {
     uint32_t n, ord;
-    int32_t stage_in, stage_out;
-    uint32_t err_cnt = 0;
+    int32_t  stage_in;
     uint32_t data_counter = filter->data_counter;
     uint32_t order = filter->order;
 
@@ -40,13 +42,11 @@ void cic_write(cic_filter_t *filter, const uint16_t *data,
         stage_in = data[n];
         ord = order;
         while (likely(ord--)) {
-            stage_out = stage_in + *state;
-            *state++ = stage_out;
-            stage_in = stage_out; 
+            stage_in = *state++ = stage_in + *state;
         }
-        
+
         // Do decimation
-        if (likely(--data_counter == 0))
+        if (unlikely(--data_counter == 0))
             data_counter = filter->decimation_factor;
         else
             continue;
@@ -54,21 +54,19 @@ void cic_write(cic_filter_t *filter, const uint16_t *data,
         // Do comb
         ord = order;
         while (likely(ord--)) {
-            stage_out = stage_in - *state;
-            *state++ = stage_in;
-            stage_in = stage_out;
+            int32_t prev_in = stage_in;
+            stage_in = stage_in - *state;
+            *state++ = prev_in;
         }
 
-        // Do not calculate filter output when output buffer is full
         if (likely(filter->out_cnt < F_CIC_OUTPUT_LEN)) {
             filter->out_buf[filter->out_cnt++] = stage_in;
-        } else
-            err_cnt++;
+        } else {
+            filter->overflow_cnt++;
+        }
     }
 
     filter->data_counter = data_counter;
-    filter->overflow_cnt += err_cnt;
-    filter->samples_out_cnt += length/step - err_cnt;
 }
 
 EXECUTE_FROM_RAM
