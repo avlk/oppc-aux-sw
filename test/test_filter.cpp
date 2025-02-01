@@ -1,5 +1,6 @@
 #include <unity.h>
 #include "filter.h"
+#include "filter-c.h"
 #include <vector>
 #include <iostream>
 
@@ -240,6 +241,36 @@ void test_cic_filter_response() {
     }
 }
 
+void test_cic_filter_response_c() {
+    cic_filter_t filter;
+    cic_init(&filter, 4, 5);
+
+    uint16_t data[20] = {0};
+    size_t n;
+
+    TEST_ASSERT_EQUAL_FLOAT(625.0/512.0, filter.gain);
+
+    data[0] = 8192;
+    auto total_gain = data[0]*filter.gain;
+
+    cic_write(&filter, data, 20, 1);
+
+    TEST_ASSERT_EQUAL_INT(4, filter.out_cnt);
+
+    uint16_t out[4] = {0};
+    TEST_ASSERT_EQUAL_INT(4, cic_read(&filter, out, 4));
+
+#if 0
+    for (n = 0; n < 4; n++) {
+        char buf[128];
+        sprintf(buf, "Filter[%d] = %d", n, (int)out[n]);
+        TEST_MESSAGE(buf);
+    }
+#endif
+    for (n = 0; n < 4; n++) {
+        TEST_ASSERT_TRUE(out[n] == (uint16_t)(total_gain*cic_impulse_response_M4_R5[n]));
+    }
+}
 
 int main(int argc, char **argv) {
     UNITY_BEGIN();
@@ -249,6 +280,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_fir_filter_interleave);
     RUN_TEST(test_fir_filter_decimate);
     RUN_TEST(test_cic_filter_response);
+    RUN_TEST(test_cic_filter_response_c);
 
     UNITY_END();
 }

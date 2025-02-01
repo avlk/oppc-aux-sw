@@ -3,6 +3,8 @@
 #include <vector>
 #include <deque>
 
+#include "cic.h"
+
 namespace filter {
 
 constexpr size_t FILTER_OUTPUT_LEN{128};

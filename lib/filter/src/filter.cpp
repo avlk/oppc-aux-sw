@@ -5,6 +5,9 @@
 
 using namespace filter;
 
+#define EXECUTE_FROM_RAM __attribute__ ((long_call, section (".time_critical"))) 
+
+
 void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
     auto coefficients_size = m_coefficients.size();
 
