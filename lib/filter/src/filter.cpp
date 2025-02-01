@@ -22,9 +22,8 @@ void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
 
     for (size_t in_ptr = 0; in_ptr < length; in_ptr += step) {
         // process input data
-        m_buffer[m_buffer_pos++] = data[in_ptr];
-        if (m_buffer_pos == FILTER_BUFFER_SIZE)
-            m_buffer_pos = 0;
+        m_buffer[m_buffer_pos] = data[in_ptr];
+        m_buffer_pos = (m_buffer_pos + 1) & FILTER_ADDR_MASK;
 
         // Output data each m_decimation_factor'th input cycle
         // data counter is 
@@ -34,9 +33,9 @@ void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
             continue;
 
         // Do not calculate filter output when output buffer is full
-        if (m_values.size() < m_max_values) {
+        if (likely(m_out_cnt < FILTER_OUTPUT_LEN)) {
             // put value into the buffer
-            m_values.push_back(process_one());
+            m_out_buf[m_out_cnt++] = process_one();
         } else {
             overflow_cnt++;
         }
@@ -72,16 +71,17 @@ void FIRFilter::set_coefficients(std::vector<float> coefficients, uint32_t gain_
 // Calculates one sample of filter output for the last input value
 EXECUTE_FROM_RAM("fir")
 int32_t FIRFilter::process_one() {
-    if (m_is_symmetric)
+    if (likely(m_is_symmetric))
         return process_one_sym();
     // Generic filter implementation
-    auto coeff_len = m_coefficients.size();
-    auto coeff = m_coefficients.data();
+    const auto coeff_len = m_coefficients.size();
+    const auto coeff = m_coefficients.data();
+    const auto buf = &m_buffer[0];
 
     int32_t result = 0;
     uint32_t p_data = (m_buffer_pos - 1) & FILTER_ADDR_MASK;
     for (size_t n = 0; n < coeff_len; n++) {
-        result += (int32_t)m_buffer[p_data] * coeff[n];
+        result += (int32_t)buf[p_data] * coeff[n];
         p_data = (p_data - 1) & FILTER_ADDR_MASK;
     }
     return result >> m_gain_bits;
@@ -121,36 +121,44 @@ int32_t FIRFilter::process_one_sym() {
 
 // Returns requested number of samples or less
 size_t FIRFilter::read(int32_t *out, size_t max_length) {
-    size_t output_size = std::min(m_values.size(), max_length);
+    size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
         return output_size;
     // copy to output
-    for (size_t n = 0; n < output_size; n++)
-        out[n] = m_values[n];
-    // free data
-    m_values.erase(m_values.begin(), m_values.begin() + output_size);
+    memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
+
+    if (output_size == m_out_cnt)
+        m_out_cnt = 0;
+    else {
+        memmove(m_out_buf, &m_out_buf[output_size], sizeof(m_out_buf[0]) * (m_out_cnt - output_size));
+        m_out_cnt = m_out_cnt - output_size;
+    }
 
     return output_size;
 }
 
 // Returns requested number of samples or less
 size_t FIRFilter::read(uint16_t *out, size_t max_length) {
-    size_t output_size = std::min(m_values.size(), max_length);
+    size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
         return output_size;
-    // saturated copy to output
     for (size_t n = 0; n < output_size; n++) {
-        auto val = m_values[n];
+        auto val = m_out_buf[n];
         if (val < 0)
             val = 0;
         if (val > UINT16_MAX) 
             val = UINT16_MAX;
         out[n] = val;
     }
-    // free data
-    m_values.erase(m_values.begin(), m_values.begin() + output_size);
+    if (output_size == m_out_cnt)
+        m_out_cnt = 0;
+    else {
+        memmove(m_out_buf, &m_out_buf[output_size], sizeof(m_out_buf[0]) * (m_out_cnt - output_size));
+        m_out_cnt = m_out_cnt - output_size;
+    }
 
     return output_size;
+
 }
 
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
