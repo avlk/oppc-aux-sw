@@ -21,6 +21,9 @@
 
 #define DEF_STACK_SIZE 1024
 void filter_benchmark(size_t rounds, int stage);
+void filter_benchmark_cic_cpp(size_t rounds, int stage);
+void filter_benchmark_cic_c(size_t rounds, int stage);
+void filter_benchmark_fir(size_t rounds, int stage);
 
 cli_result_t analog_cmd(size_t argc, const char *argv[]) {
     adc_disable_dma();
@@ -317,18 +320,39 @@ cli_result_t post_cmd(size_t argc, const char *argv[]) {
 cli_result_t benchmark_cmd(size_t argc, const char *argv[]) {
     size_t n_rounds = 2000;
     int stage = 0;
+    void (* benchmark_func)(size_t n_rounds, int state) = filter_benchmark;
+    const char *benchmark_name = "total";
 
-    if (argc == 1) {
-        stage = atoi(argv[0]);
+    if (argc >= 1) {
+        if (argc > 1) 
+            stage = atoi(argv[1]);
+    
+        if (!strcmp(argv[0], "cic")) {
+            benchmark_func = filter_benchmark_cic_cpp;
+            benchmark_name = "CIC/C++";
+        } else
+        if (!strcmp(argv[0], "cicc")) {
+            benchmark_func = filter_benchmark_cic_c;
+            benchmark_name = "CIC/C";
+        } else
+        if (!strcmp(argv[0], "fir")) {
+            benchmark_func = filter_benchmark_fir;
+            benchmark_name = "FIR";
+        } else
+        if (!strcmp(argv[0], "fir")) {
+            benchmark_func = filter_benchmark;
+            benchmark_name = "total";
+        }
     }
 
     TickType_t start = xTaskGetTickCount();
-    filter_benchmark(n_rounds, stage);
+    benchmark_func(n_rounds, stage);
     TickType_t stop = xTaskGetTickCount();
 
     size_t time_ms = (stop - start) * portTICK_PERIOD_MS;
 
-    cli_info("benchmark %d", stage);
+    cli_info("benchmark %s", benchmark_name);
+    cli_info("stage %d", stage);
     cli_info("rounds %d", n_rounds);
     cli_info("time,ms %d", time_ms);
     cli_info("samples %d", n_rounds * 128);
@@ -355,7 +379,7 @@ static const cli_cmd_t command_list[] = {
     {post_cmd, "post"},
     {test_cmd, "test"},
     {flash_strobe_test_cmd, "flashstrobetest"},
-    {benchmark_cmd, "benchmark"}
+    {benchmark_cmd, "b"}
 };
 
 static int command_num = sizeof(command_list) / sizeof(command_list[0]);
@@ -541,8 +565,120 @@ void analog_task(void *pvParameters) {
 // [I] samples/s 5565217
 
 
-//#define CIC_C 1
 
+void filter_benchmark_cic_cpp(size_t rounds, int stage) {
+    filter::CICFilter</* M */4, /* R */5> filter_first;
+
+    uint16_t rx_buf[ADC_BUF_LEN];
+    constexpr size_t out_buf_len{ADC_BUF_LEN};
+    uint16_t out_buf[out_buf_len];
+
+    memset(rx_buf, 0, sizeof(rx_buf));
+    rx_buf[0] = 1000;
+    rx_buf[1] = 1000;
+    rx_buf[32] = 1000;
+    rx_buf[33] = 1000;
+    rx_buf[64] = 1000;
+    rx_buf[65] = 1000;
+
+    while (rounds--) {
+        size_t len;
+
+        // receive ADC data buffer
+        n_dma_samples++;
+
+        // .. process incoming stage
+
+        filter_first.write(rx_buf, ADC_BUF_LEN);
+        if (stage == 1)
+            continue;
+
+        // .. process second stage
+        if (filter_first.out_len() > 64) {
+            len = filter_first.read(out_buf, out_buf_len);
+        }
+    }
+}
+
+void filter_benchmark_cic_c(size_t rounds, int stage) {
+    cic_filter_t filter_first;
+    cic_init(&filter_first, /* M */4, /* R */5);
+
+    uint16_t rx_buf[ADC_BUF_LEN];
+    constexpr size_t out_buf_len{ADC_BUF_LEN};
+    uint16_t out_buf[out_buf_len];
+
+    memset(rx_buf, 0, sizeof(rx_buf));
+    rx_buf[0] = 1000;
+    rx_buf[1] = 1000;
+    rx_buf[32] = 1000;
+    rx_buf[33] = 1000;
+    rx_buf[64] = 1000;
+    rx_buf[65] = 1000;
+
+    while (rounds--) {
+        size_t len;
+
+        // receive ADC data buffer
+        n_dma_samples++;
+
+        // .. process incoming stage
+
+        cic_write<4,5>(&filter_first, rx_buf, ADC_BUF_LEN, 1);
+        if (stage == 1)
+            continue;
+
+        // .. process second stage
+        if (filter_first.out_cnt > 64) {
+            len = cic_read(&filter_first, out_buf, out_buf_len);
+        }
+    }
+}
+
+// baseline
+// [I] benchmark FIR
+// [I] stage 0
+// [I] rounds 2000
+// [I] time,ms 325
+// [I] samples 256000
+// [I] samples/s 787692
+// [I] benchmark FIR
+// [I] stage 1
+// [I] rounds 2000
+// [I] time,ms 312
+// [I] samples 256000
+// [I] samples/s 820512
+
+
+void filter_benchmark_fir(size_t rounds, int stage) {
+    // Second-stage lowpass filters with passband 5kHz and decimation = 3
+    // Has output rate of 16ksps
+    filter::FIRFilter filter_second(fir_lp_48k_5k, 3);
+    
+    constexpr size_t out_buf_len{ADC_BUF_LEN};
+    uint16_t out_buf[out_buf_len];
+    uint16_t rx_buf[64];
+
+    memset(rx_buf, 0, sizeof(rx_buf));
+    rx_buf[0] = 1000;
+    rx_buf[1] = 1000;
+    rx_buf[32] = 1000;
+    rx_buf[33] = 1000;
+
+    while (rounds--) {
+        filter_second.write(rx_buf, 64);
+
+        if (filter_second.out_len() > 64) {
+            if (stage == 1)
+                filter_second.out_flush();
+            else
+                filter_second.read(out_buf, out_buf_len);
+        }
+    }
+}
+
+
+//#define CIC_C 1
 void filter_benchmark(size_t rounds, int stage) {
     // First-stage lowpass filters with passband < 50kHz and decimation = 5
     // Has output rate of 50ksps
@@ -568,17 +704,6 @@ void filter_benchmark(size_t rounds, int stage) {
     rx_buf[33] = 1000;
     rx_buf[64] = 1000;
     rx_buf[65] = 1000;
-
-    if (stage == 4) {
-        while (rounds--) {
-            int32_t sum{0};
-            for (size_t n = 0; n < ADC_BUF_LEN; n++) {
-                sum += rx_buf[n];
-            }
-            rx_buf[3] = sum & 0xFFFF;
-        }
-        return;
-    }
 
     while (rounds--) {
         size_t len;
@@ -610,16 +735,18 @@ void filter_benchmark(size_t rounds, int stage) {
                 filter_second.write(out_buf, len);
         }
 
-        if (stage == 3)
-            continue;
-
         // .. consume second stage results
         if (filter_second.out_len() > 64) {
             int avg{0};
-            len = filter_second.read(out_buf, out_buf_len);
+            if (stage == 3)
+                filter_second.out_flush();
+            else
+                filter_second.read(out_buf, out_buf_len);
         }
     }
 }
+
+
 
 void setup() {
     Serial.begin(115200);
