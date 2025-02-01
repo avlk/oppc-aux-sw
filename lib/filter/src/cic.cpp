@@ -16,8 +16,6 @@ void cic_init(cic_filter_t *filter,
               uint32_t order /* M */, 
              uint32_t downsample/* R */) {  
     memset(filter, 0, sizeof(cic_filter_t));
-    filter->order = order;
-    filter->decimation_factor = downsample; 
     filter->data_counter = downsample;
 
     uint32_t n = 1;
@@ -28,12 +26,12 @@ void cic_init(cic_filter_t *filter,
     filter->gain = (float)actual_gain / (1UL << filter->attenuate_shift);
 }
 
+template <uint8_t order, uint8_t decimation_factor>
 EXECUTE_FROM_RAM 
 void cic_write(cic_filter_t *filter, const uint16_t *data, size_t length, size_t step) {
     uint32_t n, ord;
     int32_t  stage_in;
     uint32_t data_counter = filter->data_counter;
-    uint32_t order = filter->order;
 
     for (n = 0; likely(n < length); n += step) {
         int32_t *state = filter->int_state;
@@ -47,7 +45,7 @@ void cic_write(cic_filter_t *filter, const uint16_t *data, size_t length, size_t
 
         // Do decimation
         if (unlikely(--data_counter == 0))
-            data_counter = filter->decimation_factor;
+            data_counter = decimation_factor;
         else
             continue;
             
@@ -93,3 +91,7 @@ size_t cic_read(cic_filter_t *filter, uint16_t *out, size_t max_length) {
 
     return output_size;
 }
+
+
+// Pre-instantiate templated functions for requested cases
+template void cic_write<4,5>(cic_filter_t *filter, const uint16_t *data, size_t length, size_t step);

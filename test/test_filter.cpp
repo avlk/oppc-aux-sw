@@ -252,7 +252,7 @@ void test_cic_filter_response_c() {
     data[0] = 8192;
     auto total_gain = data[0]*filter.gain;
 
-    cic_write(&filter, data, 20, 1);
+    cic_write<4,5>(&filter, data, 20, 1);
 
     TEST_ASSERT_EQUAL_INT(4, filter.out_cnt);
 

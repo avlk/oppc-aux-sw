@@ -556,7 +556,7 @@ void analog_task(void *pvParameters) {
 // [R] OK
 // C++
 
-//#define CIC_C 1
+#define CIC_C 1
 
 void filter_benchmark(size_t rounds, int stage) {
     // First-stage lowpass filters with passband < 50kHz and decimation = 5
@@ -606,7 +606,7 @@ void filter_benchmark(size_t rounds, int stage) {
 #ifndef CIC_C
         filter_first.write(rx_buf, ADC_BUF_LEN);
 #else
-        cic_write(&filter_first, rx_buf, ADC_BUF_LEN, 1);
+        cic_write<4,5>(&filter_first, rx_buf, ADC_BUF_LEN, 1);
 #endif
         if (stage == 1)
             continue;
