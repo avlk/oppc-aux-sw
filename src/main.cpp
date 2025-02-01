@@ -649,6 +649,19 @@ void filter_benchmark_cic_c(size_t rounds, int stage) {
 // [I] samples 256000
 // [I] samples/s 820512
 
+// results
+// [I] benchmark FIR
+// [I] stage 0
+// [I] rounds 2000
+// [I] time,ms 242
+// [I] samples 256000
+// [I] samples/s 1057851
+// [I] benchmark FIR
+// [I] stage 1
+// [I] rounds 2000
+// [I] time,ms 231
+// [I] samples 256000
+// [I] samples/s 1108225
 
 void filter_benchmark_fir(size_t rounds, int stage) {
     // Second-stage lowpass filters with passband 5kHz and decimation = 3

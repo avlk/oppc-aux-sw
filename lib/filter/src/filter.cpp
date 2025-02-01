@@ -79,20 +79,19 @@ int32_t FIRFilter::process_one() {
     auto coeff = m_coefficients.data();
 
     int32_t result = 0;
-    int p_data = m_buffer_pos - 1;
+    uint32_t p_data = (m_buffer_pos - 1) & FILTER_ADDR_MASK;
     for (size_t n = 0; n < coeff_len; n++) {
-        if (p_data < 0)
-            p_data += FILTER_BUFFER_SIZE;
         result += (int32_t)m_buffer[p_data] * coeff[n];
-        p_data--;
+        p_data = (p_data - 1) & FILTER_ADDR_MASK;
     }
     return result >> m_gain_bits;
 }
 
 EXECUTE_FROM_RAM("fir")
 int32_t FIRFilter::process_one_sym() {
-    auto coeff_len = m_coefficients.size();
-    auto coeff = m_coefficients.data();
+    const auto coeff_len = m_coefficients.size();
+    const auto coeff = m_coefficients.data();
+    const auto buf = &m_buffer[0];
 
     // for 7-tap filter:
     // coeff_len = 7
@@ -105,24 +104,17 @@ int32_t FIRFilter::process_one_sym() {
 
     int32_t result = 0;
     // Set initial data pointers
-    int p_data1 = m_buffer_pos - 1;
-    if (p_data1 < 0)
-        p_data1 += FILTER_BUFFER_SIZE;
-
-    int p_data2 = m_buffer_pos - coeff_len;
-    if (p_data2 < 0)
-        p_data2 += FILTER_BUFFER_SIZE;
+    uint32_t p_data1 = (m_buffer_pos - 1) & FILTER_ADDR_MASK;
+    uint32_t p_data2 = (m_buffer_pos - m_coefficients.size()) & FILTER_ADDR_MASK;
 
     for (size_t n = 0; n < coeff_len/2; n++) {
         // Wrap pointers over the buffer
-        result += ((int32_t)m_buffer[p_data1] + (int32_t)m_buffer[p_data2])  * coeff[n];
-        if (--p_data1 < 0)
-            p_data1 += FILTER_BUFFER_SIZE;
-        if (++p_data2 == FILTER_BUFFER_SIZE)
-            p_data2 = 0;
+        result += ((int32_t)buf[p_data1] + (int32_t)buf[p_data2])  * coeff[n];
+        p_data1 = (p_data1 - 1) & FILTER_ADDR_MASK;
+        p_data2 = (p_data2 + 1) & FILTER_ADDR_MASK;
     }
     // Wrap pointer last time and use it as last value pointer
-    result += (int32_t)m_buffer[p_data1] * coeff[coeff_len/2];
+    result += (int32_t)buf[p_data1] * coeff[coeff_len/2];
 
     return result >> m_gain_bits;
 }

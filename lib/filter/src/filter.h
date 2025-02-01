@@ -8,8 +8,10 @@
 namespace filter {
 
 constexpr size_t FILTER_OUTPUT_LEN{128};
-constexpr size_t MAX_FILTER_ORDER{128};
-constexpr size_t FILTER_BUFFER_SIZE{MAX_FILTER_ORDER};
+constexpr uint8_t FILTER_SIZE_MAG2{7};
+constexpr size_t MAX_FILTER_ORDER{1 << FILTER_SIZE_MAG2};
+constexpr size_t FILTER_BUFFER_SIZE{1 << FILTER_SIZE_MAG2};
+constexpr uint32_t FILTER_ADDR_MASK{(0xFFFFFFFF) >> (32 - FILTER_SIZE_MAG2)};
 
 class FIRFilter final {
 public:
