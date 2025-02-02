@@ -1,0 +1,9 @@
+{
+    "name": "oppc-correlator",
+    "version": "0.0.1",
+    "build": {
+        "flags": [
+            "-O3"
+        ]
+    }
+}

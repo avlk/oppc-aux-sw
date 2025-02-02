@@ -164,7 +164,7 @@ void test_fir_filter_interleave() {
     int32_t out[17];
     TEST_ASSERT_EQUAL_INT(17, filter.read(out, 17));
 
-    check_response(out, true);
+    check_response(out);
 }
 
 void test_fir_filter_decimate() {

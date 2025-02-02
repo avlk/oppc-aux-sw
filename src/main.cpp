@@ -15,6 +15,7 @@
 #include "cli_out.h"
 #include "analog.h"
 #include "filter.h"
+#include "correlator.h"
 
 // https://wiki.segger.com/How_to_debug_Arduino_a_Sketch_with_Ozone_and_J-Link
 
