@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <vector>
 #include <utility>
+#include <functional>
 
 namespace correlator {
 
@@ -42,12 +43,44 @@ private:
     size_t   m_capacity;
 };
 
+/* 
+ * `break_chunks` gets references into Circular buffers
+ *   a - longer one
+ *   b - shorter one
+ * and generates a set of overlapping chunk pairs for convolution
+ * where
+ *   start_a - start of the convolution region in a (<0)
+ *   start_b - start of the convolution region in b (<0)
+ *   length  - total length of the convolution region, in samples
+ * Returns:
+ *   1..3 pairs of data with pointers into a and b
+ *   0 pairs on any error
+ */
 std::vector<processing_pair_t> break_chunks(const CircularBuffer &a,
                                             const CircularBuffer &b,
                                             int start_a, int start_b,
                                             int length);
 
-std::pair<int32_t, uint64_t> correlate(const CircularBuffer &a,
+typedef std::function<void(int32_t, uint64_t)> correlate_callback_t;
+
+/*
+ * Performs correlation of buffers `a` and `b`, where `b` is treated as a needle,
+ * and `a` as a haystack. Last `length` samples of `b` are correlated to `a`,
+ * with offset range in a from `a_offset_min` to `a_offset_max` in the past, 
+ * compared to `a`. Callback function is called with offset and correlation value
+ * for each offset.
+ */
+void correlate(const CircularBuffer &a,
+                const CircularBuffer &b,
+                uint32_t a_offset_min, 
+                uint32_t a_offset_max,
+                uint32_t length,
+                correlate_callback_t &callback);
+
+/*
+ * Performs correlation as in correlate(), but returns peak value offset and value
+ */
+std::pair<int32_t, uint64_t> correlate_max(const CircularBuffer &a,
                                        const CircularBuffer &b,
                                        uint32_t a_offset_min, 
                                        uint32_t a_offset_max,

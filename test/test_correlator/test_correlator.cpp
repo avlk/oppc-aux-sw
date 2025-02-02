@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <string.h>
+#include <stdio.h>
 #include "correlator.h"
 
 using namespace correlator;
@@ -132,27 +133,41 @@ void test_break_chunks() {
     TEST_ASSERT_EQUAL_INT(4, ret[2].b.length);
 }
 
+
 void test_correlator() {
     CircularBuffer a(64);
     CircularBuffer b(16);
     uint16_t data[64];
+    size_t n;
 
-    memset(data, 0, sizeof(data));
-    data[32] = 1000;
-    data[33] = 100;
-    data[34] = 1000;
-    data[35] = 100;
+    for (n = 0; n < 64; n++)
+        data[n] = 128 + rand() % 16;
+    data[32] += 30;
+    data[33] += 20;
+    data[34] += 30;
+    data[35] += 20;
     a.write(data, 64);
 
-    memset(data, 0, sizeof(data));
-    data[0] = 1000;
-    data[1] = 100;
-    data[2] = 1000;
-    data[3] = 100;
+    for (n = 0; n < 64; n++)
+        data[n] = 128 + rand() % 16;
+    data[0] += 30;
+    data[1] += 20;
+    data[2] += 30;
+    data[3] += 20;
 
     b.write(data, 16);
 
-    auto ret = correlate(a, b, 10, 50, b.get_capacity());
+    auto ret = correlate_max(a, b, 10, 50, b.get_capacity());
+
+    correlator::correlate_callback_t f{[&](int32_t offset, uint64_t val) {
+        char buf[128];
+        float mag = val;
+        sprintf(buf, "[%d] -> %f", offset, mag);
+        TEST_MESSAGE(buf);
+    }};
+    // Print correlation values
+    correlate(a, b, 10, 50, b.get_capacity(), f);
+
     TEST_ASSERT_EQUAL(16, ret.first);
 
 }
@@ -164,6 +179,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_circular_buffer_chunks);
     RUN_TEST(test_break_chunks);
     RUN_TEST(test_correlator);
-
+ 
     UNITY_END();
 }

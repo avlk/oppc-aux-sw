@@ -55,7 +55,7 @@ std::vector<processing_unit_t> CircularBuffer::get_data_chunks(int start, int le
  *   start_b - start of the convolution region in b (<0)
  *   length  - total length of the convolution region, in samples
  * Returns:
- *   1..4 pairs of data with pointers into a and b
+ *   1..3 pairs of data with pointers into a and b
  *   0 pairs on any error
  */
 std::vector<processing_pair_t> 
@@ -133,12 +133,13 @@ static uint64_t correlate_pair(const processing_pair_t& p) {
     return sum;
 }
 
-std::pair<int32_t, uint64_t> 
-correlator::correlate(const CircularBuffer &a,
+
+void correlator::correlate(const CircularBuffer &a,
                         const CircularBuffer &b,
                         uint32_t a_offset_min, 
                         uint32_t a_offset_max,
-                        uint32_t length) {
+                        uint32_t length,
+                        correlator::correlate_callback_t &callback) {
     int32_t max_index{0};
     uint64_t max_val{0};
 
@@ -150,11 +151,27 @@ correlator::correlate(const CircularBuffer &a,
         for (const auto &c: pairs) {
             sum += correlate_pair(c);
         } 
+        callback(offset, sum);
+    }
+}
+
+std::pair<int32_t, uint64_t> 
+correlator::correlate_max(const CircularBuffer &a,
+                        const CircularBuffer &b,
+                        uint32_t a_offset_min, 
+                        uint32_t a_offset_max,
+                        uint32_t length) {
+    int32_t max_index{0};
+    uint64_t max_val{0};
+
+    correlator::correlate_callback_t f([&](int32_t offset, uint64_t sum) {
         if (sum > max_val) {
             max_val = sum;
             max_index = offset;
         }
-    }
+    }); 
+
+    correlate(a, b, a_offset_min, a_offset_max, length, f);
+
     return std::make_pair(max_index, max_val);
 }
-

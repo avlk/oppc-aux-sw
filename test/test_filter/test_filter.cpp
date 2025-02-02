@@ -72,7 +72,7 @@ static void check_response(int32_t out[17], bool debug=false) {
     if (debug) {
         for (n = 0; n < 17; n++) {
             char buf[128];
-            sprintf(buf, "Sample[%d] = %d (expected %d)", n, out[n], expected_step_response[n]);
+            sprintf(buf, "Sample[%d] = %d (expected %d)", static_cast<int>(n), out[n], expected_step_response[n]);
             TEST_MESSAGE(buf);
         }
     }
