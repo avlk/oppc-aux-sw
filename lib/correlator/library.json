@@ -4,6 +4,7 @@
     "build": {
         "flags": [
             "-O3"
-        ]
+        ],
+        "extraScript": "generate-disassembly.py"
     }
 }

@@ -77,21 +77,22 @@ void test_break_chunks() {
     b.write(data, 12);
     TEST_ASSERT_EQUAL(12, b.get_data_ptr());
 
-    std::vector<processing_pair_t> ret;
     auto abuf = a.get_data();
     auto bbuf = b.get_data();
     
     // Shall return single pair
-    ret = break_chunks(a, b, -12, -12, 12);
-    TEST_ASSERT_EQUAL_INT(1, ret.size());
+    correlator::processing_pair_t ret[4];
+    size_t ret_size;
+    ret_size = break_chunks(a, b, -12, -12, 12, ret);
+    TEST_ASSERT_EQUAL_INT(1, ret_size);
     TEST_ASSERT_EQUAL_PTR(abuf + 20, ret[0].a.start);
     TEST_ASSERT_EQUAL_INT(12, ret[0].a.length);
     TEST_ASSERT_EQUAL_PTR(bbuf + 0, ret[0].b.start);
     TEST_ASSERT_EQUAL_INT(12, ret[0].b.length);
 
     // Shall return two pairs because `a` would overlap
-    ret = break_chunks(a, b, -40, -12, 12);
-    TEST_ASSERT_EQUAL_INT(2, ret.size());
+    ret_size = break_chunks(a, b, -40, -12, 12, ret);
+    TEST_ASSERT_EQUAL_INT(2, ret_size);
     TEST_ASSERT_EQUAL_PTR(abuf + (64-8), ret[0].a.start);
     TEST_ASSERT_EQUAL_INT(8, ret[0].a.length);
     TEST_ASSERT_EQUAL_PTR(bbuf + 0, ret[0].b.start);
@@ -102,8 +103,8 @@ void test_break_chunks() {
     TEST_ASSERT_EQUAL_INT(4, ret[1].b.length);
 
     // Shall return two pairs because `b` would overlap
-    ret = break_chunks(a, b, -48, -16, 12);
-    TEST_ASSERT_EQUAL_INT(2, ret.size());
+    ret_size = break_chunks(a, b, -48, -16, 12, ret);
+    TEST_ASSERT_EQUAL_INT(2, ret_size);
     TEST_ASSERT_EQUAL_PTR(abuf + 48, ret[0].a.start);
     TEST_ASSERT_EQUAL_INT(4, ret[0].a.length);
     TEST_ASSERT_EQUAL_PTR(bbuf + (16-4), ret[0].b.start);
@@ -114,11 +115,11 @@ void test_break_chunks() {
     TEST_ASSERT_EQUAL_INT(8, ret[1].b.length);
 
     // Shall return 3 pairs because `a` and `b` would overlap
-    ret = break_chunks(a, b, -44, -16, 16);
+    ret_size = break_chunks(a, b, -44, -16, 16, ret);
     // a overlap: 12 + 4
     // b overlap: 4 + 12
     // summary 4 + 8 + 4
-    TEST_ASSERT_EQUAL_INT(3, ret.size());
+    TEST_ASSERT_EQUAL_INT(3, ret_size);
     TEST_ASSERT_EQUAL_PTR(abuf + 52, ret[0].a.start);
     TEST_ASSERT_EQUAL_INT(4, ret[0].a.length);
     TEST_ASSERT_EQUAL_PTR(bbuf + (16-4), ret[0].b.start);

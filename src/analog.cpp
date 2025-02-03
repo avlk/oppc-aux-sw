@@ -113,7 +113,7 @@ std::pair<float,float> measure_avg_voltage(int channel, uint32_t duration_ms) {
 #if !INCLUDE_vTaskSuspend
 #error This code relies on infinite blocking of tasks when portMAX_DELAY is set as timeout value
 #endif
-using namespace queued_adc;
+namespace queued_adc {
 
 QueuedADCConsumer::QueuedADCConsumer() : IADCDataConsumer() {
     // This is a queue for received data
@@ -183,3 +183,54 @@ void QueuedADCConsumer::return_msg(const adc_queue_msg_t *msg) {
     if (xQueueSendToBack(m_return_queue, &_msg, portMAX_DELAY) != pdTRUE)
         cnt_return_fail++;
 }
+
+};
+
+namespace data_queue {
+
+
+QueuedDataConsumer::QueuedDataConsumer() {
+    // This is a queue for received data
+    m_msg_queue = xQueueCreate(DATA_QUEUE_LEN, sizeof(data_queue_msg_t *));
+    // This queue holds unused buffers
+    m_return_queue = xQueueCreate(DATA_QUEUE_LEN, sizeof(data_queue_msg_t *));
+    // Fill return queue with unused buffers
+    for (size_t n = 0; n < DATA_QUEUE_LEN; n++) {
+        data_queue_msg_t *ptr = &m_pool[n];
+        xQueueSendToBack(m_return_queue, &ptr, 0);
+    }
+}
+  
+const data_queue_msg_t *QueuedDataConsumer::receive_msg_int(TickType_t timeout) {
+    data_queue_msg_t *msg;
+
+    if (xQueueReceive(m_msg_queue, &msg, timeout) != pdPASS)
+        return nullptr;
+    
+    return msg;
+}
+
+void QueuedDataConsumer::receive_msg_return(const data_queue_msg_t *msg) {
+    const data_queue_msg_t *_msg{msg};
+
+    if (xQueueSendToBack(m_return_queue, &_msg, portMAX_DELAY) != pdTRUE)
+        cnt_return_fail++;
+}
+
+data_queue_msg_t* QueuedDataConsumer::send_msg_claim() {
+    data_queue_msg_t *msg;
+
+    if (xQueueReceive(m_return_queue, &msg, 0) != pdPASS)
+        return nullptr;
+    
+    return msg;
+}
+
+void QueuedDataConsumer::send_msg_send(const data_queue_msg_t* msg) {
+    const data_queue_msg_t *_msg{msg};
+
+    if (xQueueSendToBack(m_msg_queue, &_msg, portMAX_DELAY) != pdTRUE)
+        cnt_send_fail++;
+}
+
+};

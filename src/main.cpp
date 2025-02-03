@@ -25,6 +25,7 @@ void filter_benchmark(size_t rounds, int stage);
 void filter_benchmark_cic_cpp(size_t rounds, int stage);
 void filter_benchmark_cic_c(size_t rounds, int stage);
 void filter_benchmark_fir(size_t rounds, int stage);
+void correlator_benchmark(size_t rounds, int stage);
 
 cli_result_t analog_cmd(size_t argc, const char *argv[]) {
     adc_disable_dma();
@@ -321,6 +322,7 @@ cli_result_t post_cmd(size_t argc, const char *argv[]) {
 cli_result_t benchmark_cmd(size_t argc, const char *argv[]) {
     size_t n_rounds = 2000;
     int stage = 0;
+    size_t samples_per_round = 128;
     void (* benchmark_func)(size_t n_rounds, int state) = filter_benchmark;
     const char *benchmark_name = "total";
 
@@ -340,6 +342,12 @@ cli_result_t benchmark_cmd(size_t argc, const char *argv[]) {
             benchmark_func = filter_benchmark_fir;
             benchmark_name = "FIR";
         } else
+        if (!strcmp(argv[0], "cor")) {
+            benchmark_func = correlator_benchmark;
+            n_rounds = 1;
+            samples_per_round = 1;
+            benchmark_name = "COR";
+        } else
         if (!strcmp(argv[0], "fir")) {
             benchmark_func = filter_benchmark;
             benchmark_name = "total";
@@ -356,8 +364,8 @@ cli_result_t benchmark_cmd(size_t argc, const char *argv[]) {
     cli_info("stage %d", stage);
     cli_info("rounds %d", n_rounds);
     cli_info("time,ms %d", time_ms);
-    cli_info("samples %d", n_rounds * 128);
-    cli_info("samples/s %d", (n_rounds * 128 * 1000) / time_ms );
+    cli_info("samples %d", n_rounds * samples_per_round);
+    cli_info("samples/s %d", (n_rounds * samples_per_round * 1000) / time_ms );
 
     return CMD_OK;
 }
@@ -386,9 +394,13 @@ static const cli_cmd_t command_list[] = {
 static int command_num = sizeof(command_list) / sizeof(command_list[0]);
 
 static volatile uint32_t n_dma_samples{0};
+static volatile uint32_t n_consumer_samples{0};
+static volatile uint32_t n_correlator_runs{0};
 static volatile float avg_voltage[2] = {-1., -1.};
 static volatile uint32_t filter_in[2] = {0};
 static volatile uint32_t filter_out[2] = {0};
+static volatile int32_t  correlator_offset{0};
+static volatile uint32_t correlator_runtime{0};
 
 extern int adc_offset;
 cli_result_t test_cmd(size_t argc, const char *argv[]) {
@@ -408,12 +420,16 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
 
     cli_info("adc_offset %d", adc_offset);
     cli_info("dma_samples %d", n_dma_samples);
+    cli_info("consumer_samples %d", n_consumer_samples);
+    cli_info("correlator_runs %d", n_correlator_runs);
     cli_info("filter_in[0] %d", filter_in[0]);
     cli_info("filter_in[1] %d", filter_in[1]);
     cli_info("filter_out[0] %d", filter_out[0]);
     cli_info("filter_out[1] %d", filter_out[1]);
-    cli_info("Vavg[0] %f", avg_voltage[0]);
-    cli_info("Vavg[1] %f", avg_voltage[1]);
+    // cli_info("Vavg[0] %f", avg_voltage[0]);
+    // cli_info("Vavg[1] %f", avg_voltage[1]);
+    cli_info("correlator_offset %d", correlator_offset);
+    cli_info("correlator_runtime %d", correlator_runtime);
 
     return CMD_OK;
 }
@@ -456,9 +472,12 @@ static std::vector<float> fir_lp_48k_5k
      -0.000393,
 };
 
+std::shared_ptr<data_queue::QueuedDataConsumer> sample_queue{nullptr};
 
 void analog_task(void *pvParameters) {
     auto consumer = std::make_shared<queued_adc::QueuedADCConsumer>();
+    data_queue::data_queue_msg_t *data_sink{nullptr};
+    size_t data_sink_fill = 0;
     adc_dma_config_t default_dma_config = {
         n_inputs: 2,
         inputs: {ADC_CH_S1, ADC_CH_S2}, 
@@ -504,6 +523,12 @@ void analog_task(void *pvParameters) {
         // return ADC data buffer
         consumer->return_msg(msg);
 
+        // try to obtain sink buffer if it isn't
+        if (!data_sink && (sample_queue != nullptr)) {
+            data_sink = sample_queue->send_msg_claim();
+            data_sink_fill = 0;
+        }
+
         // .. process second stage
         if (filter_first_a.out_len() > 16) {
             len = filter_first_a.read(out_buf, out_buf_len);
@@ -519,26 +544,64 @@ void analog_task(void *pvParameters) {
 
 
         // .. consume second stage results
-        if (filter_second_a.out_len() > 16) {
-            int avg{0};
-            len = filter_second_a.read(out_buf, out_buf_len);
-            for (size_t n = 0; n < len; n++)
-                avg += out_buf[n];
-            float v = ((float)avg/len)/cic_gain;            
-            filter_out[0] += len;
-            avg_voltage[0] = adc_raw_to_V(v);
-        }
-        if (filter_second_b.out_len() > 16) {
-            int avg{0};
-            len = filter_second_b.read(out_buf, out_buf_len);
-            for (size_t n = 0; n < len; n++)
-                avg += out_buf[n];
-            float v = ((float)avg/len)/cic_gain;            
-            filter_out[1] += len;
-            avg_voltage[1] = adc_raw_to_V(v);
+        size_t second_fill{std::min(filter_second_a.out_len(), filter_second_b.out_len())};
+        if ((data_sink != nullptr) && (second_fill >= 16)) {
+            size_t max_read{data_queue::DATA_BUF_LEN - data_sink_fill};
+            size_t to_read{std::min(second_fill, max_read)};
+            auto len_a = filter_second_a.read(data_sink->buffer_a + data_sink_fill, to_read);
+            auto len_b = filter_second_b.read(data_sink->buffer_b + data_sink_fill, to_read);
+            data_sink_fill += std::min(len_a, len_b); // Normally they should be equal
+            if (data_sink_fill == data_queue::DATA_BUF_LEN) {
+                // Send message
+                sample_queue->send_msg_send(data_sink);
+                // Get another message or nullptr
+                data_sink = sample_queue->send_msg_claim();
+            }
         }
     }
 }
+
+void correlator_task(void *pvParameters) {
+    sample_queue = std::make_shared<data_queue::QueuedDataConsumer>();
+    constexpr unsigned int fs{16000};
+    constexpr unsigned int ms{fs/1000};
+
+    constexpr unsigned int processing_interval{1000*ms};
+
+    constexpr unsigned int offset_a_min{200*ms};
+    constexpr unsigned int offset_a_max{300*ms};
+
+    correlator::CircularBuffer buf_a(700*ms);
+    correlator::CircularBuffer buf_b(200*ms);
+    size_t data_cnt{0};
+    
+    while (true) {
+        // receive ADC data buffer
+        const auto msg = sample_queue->receive_msg();
+        n_consumer_samples++;
+    
+        constexpr auto rx_len{data_queue::DATA_BUF_LEN};
+        buf_a.write(msg->buffer_a, rx_len);
+        buf_b.write(msg->buffer_b, rx_len);
+        data_cnt += rx_len;
+        sample_queue->receive_msg_return(msg);
+    
+        // Do processing
+        if (data_cnt >= processing_interval) {
+            data_cnt = 0;
+
+            n_correlator_runs++;
+
+            TickType_t start = xTaskGetTickCount();
+            auto ret = correlator::correlate_max(buf_a, buf_b, offset_a_min, offset_a_max, buf_b.get_capacity());
+            TickType_t stop = xTaskGetTickCount();
+
+            correlator_runtime = (stop - start) * portTICK_PERIOD_MS; // ms
+            correlator_offset  = ret.first / ms;
+        }
+    }
+}
+
 
 // baseline
 // benchmark 0
@@ -692,6 +755,50 @@ void filter_benchmark_fir(size_t rounds, int stage) {
 }
 
 
+void correlator_benchmark(size_t rounds, int stage) {
+    constexpr unsigned int fs{16000};
+    constexpr unsigned int ms{fs/1000};
+
+    constexpr unsigned int offset_a_min{200*ms};
+    constexpr unsigned int offset_a_max{350*ms};
+    constexpr unsigned int buf_fill{700*ms};
+
+    correlator::CircularBuffer buf_a(buf_fill); // 0.7s
+    correlator::CircularBuffer buf_b(300*ms);  // 0.3s
+    uint16_t buf1[16];
+    uint16_t buf2[16];
+    for (unsigned int n = 0; n < 16; n ++) {
+        buf1[n] = 100;
+        buf2[n] = 100;
+    }
+    buf2[3] = 125;
+    buf2[4] = 150;
+    buf2[5] = 700;
+    buf2[6] = 150;
+    buf2[7] = 125;
+    constexpr unsigned int a_offset{buf_fill - 300*ms};
+    constexpr unsigned int b_offset{buf_fill - 20*ms};
+
+    // fill buffers with same values and a chirp positioned
+    // at buf_a[-300ms], buf_b[-20ms]
+    for (unsigned int n = 0; n < buf_fill; n += 16) {
+        if (n == a_offset)
+            buf_a.write(buf2, 16);
+        else
+            buf_a.write(buf1, 16);
+
+        if (n == b_offset)
+            buf_b.write(buf2, 16);
+        else
+            buf_b.write(buf1, 16);
+    }
+
+    while (rounds--) {
+        auto ret = correlator::correlate_max(buf_a, buf_b, offset_a_min, offset_a_max, buf_b.get_capacity());
+        correlator_offset  = ret.first / ms;
+    }
+}
+
 //#define CIC_C 1
 void filter_benchmark(size_t rounds, int stage) {
     // First-stage lowpass filters with passband < 50kHz and decimation = 5
@@ -774,8 +881,15 @@ void setup() {
     init_fan();
     init_flash();
 
-    xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, NULL);
-    //xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, NULL);
+    TaskHandle_t t_heartbeat, t_analog, t_correlator;
+    xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, &t_heartbeat);
+    // xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, &t_analog);
+    // xTaskCreate(correlator_task, "correlator", DEF_STACK_SIZE, NULL, 2, &t_correlator);
+
+    // configure tasks to run on core 1, but correlator on core 2 
+    // vTaskCoreAffinitySet(t_heartbeat, 0x1);
+    // vTaskCoreAffinitySet(t_analog, 0x1);
+    // vTaskCoreAffinitySet(t_correlator, 0x2);
 
     adc_begin();
 

@@ -32,16 +32,20 @@ public:
     size_t get_data_ptr() const { return m_data_ptr; }
     size_t get_capacity() const { return m_capacity; }
 
-    void write(uint16_t *buf, size_t length);
+    void write(const uint16_t *buf, size_t length);
 
     // Returns 1 or 2 chunks for the contiguous region
     // of length <= m_capacity and starting at start (start < 0) 
     std::vector<processing_unit_t> get_data_chunks(int start, int length) const;
+    // Same, but fills out and returns number of filled chunks
+    size_t get_data_chunks_c(int start, int length, processing_unit_t out[2]) const;
+
 private:
     uint16_t *m_data;
     size_t   m_data_ptr{0};
     size_t   m_capacity;
 };
+
 
 /* 
  * `break_chunks` gets references into Circular buffers
@@ -53,13 +57,12 @@ private:
  *   start_b - start of the convolution region in b (<0)
  *   length  - total length of the convolution region, in samples
  * Returns:
- *   1..3 pairs of data with pointers into a and b
- *   0 pairs on any error
+ *   number of pairs of data filled in `pairs`  
+ *   fills pairs of data with pointers into a and b
  */
-std::vector<processing_pair_t> break_chunks(const CircularBuffer &a,
-                                            const CircularBuffer &b,
-                                            int start_a, int start_b,
-                                            int length);
+size_t break_chunks(const CircularBuffer &a, const CircularBuffer &b,
+                int start_a, int start_b, int length,     
+                processing_pair_t pairs[4]);
 
 typedef std::function<void(int32_t, uint64_t)> correlate_callback_t;
 

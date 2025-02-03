@@ -49,3 +49,50 @@ private:
 };
 
 }
+
+namespace data_queue {
+
+// Data buffer length
+// At 16kHz it fills in 1/100s
+constexpr size_t DATA_BUF_LEN{160}; 
+constexpr size_t DATA_QUEUE_LEN{3}; 
+
+typedef struct {
+    uint32_t timestamp;
+    uint16_t buffer_a[DATA_BUF_LEN];
+    uint16_t buffer_b[DATA_BUF_LEN];
+} data_queue_msg_t;
+
+
+class QueuedDataConsumer final {
+public:
+    QueuedDataConsumer(); 
+    virtual ~QueuedDataConsumer() = default;
+
+    // On sender side provides a message buffer to fill
+    // If no buffers are available, returns nullptr immediately
+    data_queue_msg_t* send_msg_claim();
+    // On sender side sends a message
+    void send_msg_send(const data_queue_msg_t* msg);
+
+    // On consumer side receives message
+    const data_queue_msg_t *receive_msg(uint32_t timeout_ms) { 
+        return receive_msg_int(timeout_ms / portTICK_PERIOD_MS);
+    }
+    const data_queue_msg_t *receive_msg() { 
+        return receive_msg_int();
+    }
+    // On consumer side recycles received message
+    void receive_msg_return(const data_queue_msg_t *msg);
+
+    uint32_t cnt_no_buf{0};
+    uint32_t cnt_send_fail{0};
+    uint32_t cnt_return_fail{0};
+private:
+    const data_queue_msg_t *receive_msg_int(TickType_t timeout = portMAX_DELAY);
+    data_queue_msg_t m_pool[DATA_QUEUE_LEN];
+    QueueHandle_t m_msg_queue;
+    QueueHandle_t m_return_queue;
+};
+
+}
