@@ -69,7 +69,7 @@ public:
 
     ~CICFilter() = default;
 
-    void write(const uint16_t *data, size_t length, size_t step = 1);
+    void write(const uint16_t *data, size_t length, size_t step = 1, int32_t offset = 0);
     size_t out_len() { return m_out_cnt; }
     size_t read(uint16_t *out, size_t max_length);
     float gain() { return m_gain; }

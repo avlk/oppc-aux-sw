@@ -3,6 +3,7 @@
 #include "adc.h"
 #include <FreeRTOS.h>
 #include <queue.h>
+#include "message_buffer.h"
 
 std::pair<float,float> measure_avg_voltage(int channel, uint32_t duration_ms);
 
@@ -93,6 +94,47 @@ private:
     data_queue_msg_t m_pool[DATA_QUEUE_LEN];
     QueueHandle_t m_msg_queue;
     QueueHandle_t m_return_queue;
+};
+
+template<typename T> 
+class DataTap final {
+public:
+    DataTap(size_t storage_length = 8) {
+        m_stream = xMessageBufferCreate((sizeof(size_t) + sizeof(T))*storage_length);
+    }
+
+    void send(const T &data) {
+        xMessageBufferSend(m_stream, &data, sizeof(data), portMAX_DELAY);
+    }
+
+    bool receive(T *data, unsigned int timeout = portMAX_DELAY) {
+        if (timeout != portMAX_DELAY)
+            timeout = pdMS_TO_TICKS(timeout);
+        return sizeof(T) == xMessageBufferReceive(m_stream, data, sizeof(T), timeout);
+    }
+
+    bool is_triggered() {
+        return m_triggered;
+    }
+
+    bool is_done() {
+        return m_done;
+    }
+
+    void trigger() {
+        m_triggered = true;
+        m_done = false;
+    }
+
+    void complete() {
+        m_triggered = false;
+        m_done = true;
+    }
+
+private:
+    MessageBufferHandle_t m_stream;
+    bool m_triggered{false};
+    bool m_done{false};
 };
 
 }

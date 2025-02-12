@@ -16,6 +16,8 @@
 #include "analog.h"
 #include "filter.h"
 #include "correlator.h"
+#include "utils.h"
+#include "detector.h"
 
 // https://wiki.segger.com/How_to_debug_Arduino_a_Sketch_with_Ozone_and_J-Link
 
@@ -26,6 +28,36 @@ void filter_benchmark_cic_cpp(size_t rounds, int stage);
 void filter_benchmark_cic_c(size_t rounds, int stage);
 void filter_benchmark_fir(size_t rounds, int stage);
 void correlator_benchmark(size_t rounds, int stage);
+
+typedef struct {
+    int offset;
+    float peak;
+} correlator_result_t;
+
+typedef struct {
+    uint8_t source;
+    uint16_t index;
+    uint16_t data[16];
+} circular_buf_tap_t;
+
+typedef struct {
+    uint16_t index;
+    float peak;
+} correlator_tap_t;
+
+
+static uint16_t adc_channel_offset[2]{0};
+static volatile uint32_t n_dma_samples{0};
+static volatile uint32_t n_consumer_samples{0};
+static volatile uint32_t n_correlator_runs{0};
+static volatile float avg_voltage[2] = {-1., -1.};
+static volatile uint32_t filter_in[2] = {0};
+static volatile uint32_t filter_out[2] = {0};
+static volatile int32_t  correlator_offset{0};
+static volatile uint32_t correlator_runtime{0};
+QueueHandle_t correlator_results_q{nullptr};
+static std::shared_ptr<data_queue::DataTap<circular_buf_tap_t>> circ_buf_tap{nullptr};
+static std::shared_ptr<data_queue::DataTap<correlator_tap_t>> correlator_tap{nullptr};
 
 cli_result_t analog_cmd(size_t argc, const char *argv[]) {
     adc_disable_dma();
@@ -73,6 +105,20 @@ cli_result_t status_cmd(size_t argc, const char *argv[]) {
     return CMD_OK;
 }
 
+cli_result_t results_cmd(size_t argc, const char *argv[]) {
+    int n = 0;
+    while (true) {
+        correlator_result_t r;
+
+        if (xQueueReceive(correlator_results_q, &r, 0) != pdPASS)
+            break;
+        cli_debug("Delay %d ampl %f", r.offset, r.peak);
+        n++;
+    }    
+    cli_info("new_results %d", n);
+
+    return CMD_OK;
+}
 
 
 cli_result_t led_cmd(size_t argc, const char *argv[]) {
@@ -311,6 +357,9 @@ void post() {
     // Set ref voltages
     set_ref_voltage(0, ambient_both[0] + dark_v[0] + 0.02);
     set_ref_voltage(1, ambient_both[1] + dark_v[1] + 0.03);
+
+    adc_channel_offset[0] = adc_V_to_raw(dark_v[0]); 
+    adc_channel_offset[1] = adc_V_to_raw(dark_v[1]); 
 }
 
 cli_result_t post_cmd(size_t argc, const char *argv[]) {
@@ -377,7 +426,6 @@ static const cli_cmd_t command_list[] = {
     {analog_cmd, "analog"},
     {digital_cmd, "digital"},
     {status_cmd, "status"},
-    {test_cmd, "test"},
     {led_cmd, "led"},
     {avg_v_cmd, "avgv"},
     {sensor_ref_cmd, "ref"},
@@ -388,30 +436,62 @@ static const cli_cmd_t command_list[] = {
     {post_cmd, "post"},
     {test_cmd, "test"},
     {flash_strobe_test_cmd, "flashstrobetest"},
-    {benchmark_cmd, "b"}
+    {benchmark_cmd, "b"},
+    {results_cmd, "res"}
 };
 
 static int command_num = sizeof(command_list) / sizeof(command_list[0]);
 
-static volatile uint32_t n_dma_samples{0};
-static volatile uint32_t n_consumer_samples{0};
-static volatile uint32_t n_correlator_runs{0};
-static volatile float avg_voltage[2] = {-1., -1.};
-static volatile uint32_t filter_in[2] = {0};
-static volatile uint32_t filter_out[2] = {0};
-static volatile int32_t  correlator_offset{0};
-static volatile uint32_t correlator_runtime{0};
 
 extern int adc_offset;
 cli_result_t test_cmd(size_t argc, const char *argv[]) {
 
     if (argc == 1) {
-        if (strcmp(argv[0], "dmadis") == 0) {
-            adc_disable_dma();
-            cli_info("Disabled DMA");
-        } else if (strcmp(argv[0], "dmaen") == 0) {
-            adc_enable_dma();
-            cli_info("Enabled DMA");
+        if (strcmp(argv[0], "cin") == 0) {
+            circ_buf_tap->trigger();
+            int factor_a = 0;
+            int factor_b = 0;
+            size_t n;
+            size_t ms{16};
+
+            while (true) {
+                circular_buf_tap_t data;
+                
+                if (circ_buf_tap->receive(&data, 10)) {
+                    if (data.source == 0) {
+                        // length is 700ms
+                        if ((data.index > 300*ms) && (data.index < 600*ms))
+                            for (n = 0; n < 16; n++) 
+                                if (data.data[n] > 250)
+                                    factor_a++;
+                    } else {
+                        for (n = 0; n < 16; n++) 
+                            if (data.data[n] > 250)
+                                factor_b++;
+
+                    }
+
+                    cli_info("%s # %s[%d]", 
+                          format_vec(data.data, 16, "%4hu, ").c_str(),
+                          data.source ? "b" : "a", (int)data.index);
+                } else {
+                    if (circ_buf_tap->is_done())
+                        break;
+                }
+            }
+            cli_info("peaks[a] %d", factor_a);
+            cli_info("peaks[b] %d", factor_b);
+        } else if (strcmp(argv[0], "cout") == 0) {
+            correlator_tap->trigger();
+            while (true) {
+                correlator_tap_t data;
+                if (correlator_tap->receive(&data, 2000)) {
+                    cli_info("corr[%d] %f", (int)data.index, data.peak);
+                } else {
+                    if (correlator_tap->is_done())
+                        break;
+                }
+            }
         } else {
             cli_info("Unknown subcommand");
         }
@@ -517,8 +597,8 @@ void analog_task(void *pvParameters) {
         filter_in[0] += ADC_BUF_LEN/2;
         filter_in[1] += ADC_BUF_LEN/2;
 
-        filter_first_a.write(msg->buffer, ADC_BUF_LEN, 2);
-        filter_first_b.write(msg->buffer + 1, ADC_BUF_LEN, 2);
+        filter_first_a.write(msg->buffer, ADC_BUF_LEN, 2, -adc_channel_offset[0]);
+        filter_first_b.write(msg->buffer + 1, ADC_BUF_LEN, 2, -adc_channel_offset[1]);
 
         // return ADC data buffer
         consumer->return_msg(msg);
@@ -556,6 +636,7 @@ void analog_task(void *pvParameters) {
                 sample_queue->send_msg_send(data_sink);
                 // Get another message or nullptr
                 data_sink = sample_queue->send_msg_claim();
+                data_sink_fill = 0;
             }
         }
     }
@@ -568,8 +649,8 @@ void correlator_task(void *pvParameters) {
 
     constexpr unsigned int processing_interval{1000*ms};
 
-    constexpr unsigned int offset_a_min{200*ms};
-    constexpr unsigned int offset_a_max{300*ms};
+    constexpr unsigned int offset_a_min{100*ms};
+    constexpr unsigned int offset_a_max{400*ms};
 
     correlator::CircularBuffer buf_a(700*ms);
     correlator::CircularBuffer buf_b(200*ms);
@@ -586,6 +667,36 @@ void correlator_task(void *pvParameters) {
         data_cnt += rx_len;
         sample_queue->receive_msg_return(msg);
     
+
+        if (circ_buf_tap->is_triggered()) {
+            circular_buf_tap_t tap;
+            tap.source = 0;
+            int size = buf_a.get_capacity();
+            auto data =  buf_a.get_data();
+            int pos = buf_a.get_data_ptr();
+            for (int n = 0; n < buf_a.get_capacity(); n += ms) {
+                tap.index = n;
+                for (int m = 0; m < ms; m++) {
+                    int idx = (pos + n + m) % size;
+                    tap.data[m] = data[idx];
+                }
+                circ_buf_tap->send(tap);
+            }
+            tap.source = 1;
+            size = buf_b.get_capacity();
+            data =  buf_b.get_data();
+            pos = buf_b.get_data_ptr();
+            for (int n = 0; n < buf_b.get_capacity(); n += ms) {
+                tap.index = n;
+                for (int m = 0; m < ms; m++) {
+                    int idx = (pos + n + m) % size;
+                    tap.data[m] = data[idx];
+                }
+                circ_buf_tap->send(tap);
+            }
+            circ_buf_tap->complete();
+        }
+
         // Do processing
         if (data_cnt >= processing_interval) {
             data_cnt = 0;
@@ -593,11 +704,42 @@ void correlator_task(void *pvParameters) {
             n_correlator_runs++;
 
             TickType_t start = xTaskGetTickCount();
-            auto ret = correlator::correlate_max(buf_a, buf_b, offset_a_min, offset_a_max, buf_b.get_capacity());
+
+            int32_t max_index{0};
+            uint64_t max_val{0};
+            static uint64_t bins[(offset_a_max - offset_a_min)/(5*ms)];
+            memset(bins, 0, sizeof(bins));
+            constexpr size_t bins_size{sizeof(bins)/sizeof(bins[0])};
+
+            correlator::correlate_callback_t f([&](int32_t offset, uint64_t sum) {
+                bins[(offset - offset_a_min)/(5*ms)] += sum;
+                if (sum > max_val) {
+                    max_val = sum;
+                    max_index = offset;
+                }
+            }); 
+
+            correlator::correlate(buf_a, buf_b, offset_a_min, offset_a_max, buf_b.get_capacity(), f);
+
             TickType_t stop = xTaskGetTickCount();
 
             correlator_runtime = (stop - start) * portTICK_PERIOD_MS; // ms
-            correlator_offset  = ret.first / ms;
+            correlator_offset  = max_index / ms;
+
+            correlator_result_t res;
+            res.offset = max_index / ms;
+            res.peak = max_val;
+            xQueueSendToBack(correlator_results_q, &res, 0);
+
+            if (correlator_tap->is_triggered()) {
+                correlator_tap_t tap;
+                for (size_t m = 0; m < bins_size; m++) {
+                    tap.index = (offset_a_min/ms) + m * 5;
+                    tap.peak = (float)bins[m];
+                    correlator_tap->send(tap);
+                }
+                correlator_tap->complete();
+            }
         }
     }
 }
@@ -881,15 +1023,20 @@ void setup() {
     init_fan();
     init_flash();
 
+    correlator_results_q = xQueueCreate(128, sizeof(correlator_result_t));
+    circ_buf_tap = std::make_shared<data_queue::DataTap<circular_buf_tap_t>>();
+    correlator_tap = std::make_shared<data_queue::DataTap<correlator_tap_t>>();
+
+
     TaskHandle_t t_heartbeat, t_analog, t_correlator;
     xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, &t_heartbeat);
-    // xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, &t_analog);
-    // xTaskCreate(correlator_task, "correlator", DEF_STACK_SIZE, NULL, 2, &t_correlator);
+    xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, &t_analog);
+    xTaskCreate(correlator_task, "correlator", 2048, NULL, 2, &t_correlator);
 
     // configure tasks to run on core 1, but correlator on core 2 
-    // vTaskCoreAffinitySet(t_heartbeat, 0x1);
-    // vTaskCoreAffinitySet(t_analog, 0x1);
-    // vTaskCoreAffinitySet(t_correlator, 0x2);
+    vTaskCoreAffinitySet(t_heartbeat, 0x1);
+    vTaskCoreAffinitySet(t_analog, 0x1);
+    vTaskCoreAffinitySet(t_correlator, 0x2);
 
     adc_begin();
 

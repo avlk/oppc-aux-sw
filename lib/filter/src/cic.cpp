@@ -7,9 +7,9 @@
 #define unlikely(x)     __builtin_expect((x),0)
 
 #ifndef PLATFORM_NATIVE
-#define EXECUTE_FROM_RAM __attribute__ ((long_call, section (".time_critical"))) 
+#define EXECUTE_FROM_RAM(subsection) __attribute__ ((long_call, section (".time_critical." subsection))) 
 #else
-#define EXECUTE_FROM_RAM
+#define EXECUTE_FROM_RAM(subsection)
 #endif
 
 void cic_init(cic_filter_t *filter,
@@ -27,7 +27,7 @@ void cic_init(cic_filter_t *filter,
 }
 
 template <uint8_t order, uint8_t decimation_factor>
-EXECUTE_FROM_RAM 
+EXECUTE_FROM_RAM("cic")
 void cic_write(cic_filter_t *filter, const uint16_t *data, size_t length, size_t step) {
     uint32_t n, ord;
     int32_t  stage_in;
@@ -67,7 +67,7 @@ void cic_write(cic_filter_t *filter, const uint16_t *data, size_t length, size_t
     filter->data_counter = data_counter;
 }
 
-EXECUTE_FROM_RAM
+EXECUTE_FROM_RAM("cic")
 size_t cic_read(cic_filter_t *filter, uint16_t *out, size_t max_length) {
     size_t output_size = filter->out_cnt;
     if (max_length < filter->out_cnt)

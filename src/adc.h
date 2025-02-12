@@ -58,6 +58,7 @@ uint32_t adc_read_raw(int input);   // Read ADC input is digital form
 float adc_read_V(int input);        // Read ADC input in Volts
 /* Converts raw ADC data to input V, taking adc offset into account */
 float adc_raw_to_V(int input);
+int adc_V_to_raw(float V);
 /* Converts raw ADC data to input V, NOT taking adc offset into account,
    for relative measurements */
 float adc_scale_to_V(int input);

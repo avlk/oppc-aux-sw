@@ -216,3 +216,7 @@ float adc_raw_to_V(int input) {
 float adc_scale_to_V(int input) {
     return ((float)input * 3.3) / (1U << ADC_BITS);
 }
+
+int adc_V_to_raw(float V) {
+    return round((V / 3.3) * (1U << ADC_BITS)) + adc_offset; 
+}
