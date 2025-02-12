@@ -70,6 +70,9 @@
         "variant": "cpp",
         "iostream": "cpp",
         "bitset": "cpp",
-        "regex": "cpp"
+        "regex": "cpp",
+        "semaphore": "cpp",
+        "stop_token": "cpp",
+        "cfenv": "cpp"
     }
 }

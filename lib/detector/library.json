@@ -1,0 +1,9 @@
+{
+    "name": "oppc-detector",
+    "version": "0.0.1",
+    "build": {
+        "flags": [
+            "-O3"
+        ]
+    }
+}
