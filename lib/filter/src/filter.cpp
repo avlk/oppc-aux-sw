@@ -164,7 +164,7 @@ size_t FIRFilter::read(uint16_t *out, size_t max_length) {
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
 EXECUTE_FROM_RAM("cic")
 void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t length, 
-                                                size_t step, int32_t offset) {
+                                                size_t step) {
     size_t n, ord;
     int32_t stage_in;
     uint32_t data_counter = m_data_counter;
@@ -173,7 +173,7 @@ void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t len
         int32_t *state = &m_int_state[0];
 
         // Do integrator operation
-        stage_in = data[n] + offset;
+        stage_in = data[n];
         ord = order;
         while (likely(ord--)) {
             stage_in = *state++ = stage_in + *state;

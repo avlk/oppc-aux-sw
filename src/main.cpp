@@ -18,6 +18,7 @@
 #include "correlator.h"
 #include "utils.h"
 #include "detector.h"
+#include "post.h"
 
 // https://wiki.segger.com/How_to_debug_Arduino_a_Sketch_with_Ozone_and_J-Link
 
@@ -261,110 +262,18 @@ cli_result_t flash_strobe_test_cmd(size_t argc, const char *argv[]) {
 }
 
 
-void post() {
-    float dark_v[2];
-    float ambient_single[2];
-    float ambient_both[2];
-    float ambient_flash[2];
-
-    // 1. Turn the fan off, laser off and measure dark voltage on sensors
-    set_fan(false);
-    task_sleep_ms(500);
-    set_laser(0, false);
-    set_laser(1, false);
-    task_sleep_ms(20);
-    dark_v[0] = measure_avg_voltage(0, 10).first;
-    dark_v[1] = measure_avg_voltage(1, 10).first;
-
-    // 2.1. Turn the laser1 on and measure ambient light through sensor1
-    set_laser(0, true);
-    set_laser(1, false);
-    task_sleep_ms(20);
-    ambient_single[0] = measure_avg_voltage(0, 10).first;
-
-    // 2.1. Turn the laser2 on and measure ambient light through sensor2
-    set_laser(0, false);
-    set_laser(1, true);
-    task_sleep_ms(20);
-    ambient_single[1] = measure_avg_voltage(1, 10).first;
-
-    // 3.1. Turn both lasers on and measure ambient light through both sensors
-    set_laser(0, true);
-    set_laser(1, true);
-    task_sleep_ms(20);
-    ambient_both[0] = measure_avg_voltage(0, 10).first;
-    ambient_both[1] = measure_avg_voltage(1, 10).first;
-
-    // 4. Turn flash on and measure voltage through both sensors
-    set_laser(0, true);
-    set_laser(1, true);
-    set_flash_level(35); // Flash at 35% generates normal 350mA current
-    set_flash(true);
-    task_sleep_ms(1);
-    ambient_flash[0] = measure_avg_voltage(0, 1).first;
-    set_flash(false);
-    task_sleep_ms(20);
-    set_flash(true);
-    task_sleep_ms(1);
-    ambient_flash[1] = measure_avg_voltage(1, 1).first;
-    set_flash(false);
-
-    unsigned int n; 
-    for (n = 0; n < 2; n++) {
-        ambient_single[n] -= dark_v[n];
-        ambient_both[n] -= dark_v[n];
-        ambient_flash[n] -= dark_v[n];
-    }
-
-    // 5.1 Test sensor 1 ref
-    bool pass;
-    set_laser(0, true);
-    set_laser(1, true);
-
-    set_ref_voltage(0, ambient_both[0] + dark_v[0] - 0.02);
-    task_sleep_ms(50);
-    pass = gpio_get(IO_S1_TRIG) == true;
-    cli_info("S1_TRIG_HIGH %s", pass ? "PASS" : "FAIL");
-
-    set_ref_voltage(0, ambient_both[0] + dark_v[0] + 0.02);
-    task_sleep_ms(50);
-    pass = gpio_get(IO_S1_TRIG) == false;
-    cli_info("S1_TRIG_LOW %s", pass ? "PASS" : "FAIL");
-
-    // 5.2 Test sensor 2 ref
-    set_ref_voltage(1, ambient_both[1] + dark_v[1] - 0.02);
-    task_sleep_ms(50);
-    pass = gpio_get(IO_S2_TRIG) == true;
-    cli_info("S2_TRIG_HIGH %s", pass ? "PASS" : "FAIL");
-
-    set_ref_voltage(1, ambient_both[1] + dark_v[1] + 0.02);
-    task_sleep_ms(50);
-    pass = gpio_get(IO_S2_TRIG) == false;
-    cli_info("S2_TRIG_LOW %s", pass ? "PASS" : "FAIL");
-
-
-    for (n = 0; n < 2; n++)
-        cli_info("dark%d %.3fV", n+1, dark_v[n]);
-    for (n = 0; n < 2; n++)
-        cli_info("ambient_self%d %.3fV", n+1, ambient_single[n]);
-    for (n = 0; n < 2; n++)
-        cli_info("ambient_both%d %.3fV", n+1, ambient_both[n]);
-    cli_info("ambient_cross2to1 %.3fV", ambient_both[0] - ambient_single[0]);
-    cli_info("ambient_cross1to2 %.3fV", ambient_both[1] - ambient_single[1]);
-    cli_info("flashto1 %.3fV", ambient_flash[0] - ambient_both[0]);
-    cli_info("flashto2 %.3fV", ambient_flash[1] - ambient_both[1]);
-
-    // Set ref voltages
-    set_ref_voltage(0, ambient_both[0] + dark_v[0] + 0.02);
-    set_ref_voltage(1, ambient_both[1] + dark_v[1] + 0.03);
-
-    adc_channel_offset[0] = adc_V_to_raw(ambient_both[0] + dark_v[0]); 
-    adc_channel_offset[1] = adc_V_to_raw(ambient_both[1] + dark_v[1]); 
-}
 
 cli_result_t post_cmd(size_t argc, const char *argv[]) {
+    if (argc > 1)
+        return CMD_ERROR;
+    if (argc == 1) {
+        if (!strcmp(argv[0], "run"))
+            post();
+        else
+            return CMD_ERROR;
+    }
 
-    post();
+    print_post_result(get_post_result());
     return CMD_OK;
 }
 
@@ -586,8 +495,8 @@ void analog_task(void *pvParameters) {
         filter_in[0] += ADC_BUF_LEN/2;
         filter_in[1] += ADC_BUF_LEN/2;
 
-        filter_first_a.write(msg->buffer, ADC_BUF_LEN, 2, -adc_channel_offset[0]);
-        filter_first_b.write(msg->buffer + 1, ADC_BUF_LEN, 2, -adc_channel_offset[1]);
+        filter_first_a.write(msg->buffer, ADC_BUF_LEN, 2);
+        filter_first_b.write(msg->buffer + 1, ADC_BUF_LEN, 2);
 
         // return ADC data buffer
         consumer->return_msg(msg);
@@ -990,7 +899,6 @@ void setup() {
 
     detector_results_q = xQueueCreate(2048, sizeof(detector::detected_object_t));
     circ_buf_tap = std::make_shared<data_queue::DataTap<circular_buf_tap_t>>();
-
 
     TaskHandle_t t_heartbeat, t_analog, t_correlator;
     xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, &t_heartbeat);
