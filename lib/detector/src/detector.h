@@ -7,10 +7,11 @@ namespace detector {
 
 
 typedef struct {
-    uint64_t start, end;
+    uint64_t start;
     uint32_t len;
-    int32_t power;
-    int32_t ampl;
+    int32_t  power;
+    int32_t  ampl;
+    uint32_t source;
 } detected_object_t;
 
 // DC filter pole would be (1 << DC_BASE_SHIFT - DC_POLE_NUM)/(1 << DC_BASE_SHIFT)

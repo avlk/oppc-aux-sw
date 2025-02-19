@@ -1,7 +1,6 @@
 #include <math.h>
 #include <string.h>
 #include "detector.h"
-#include <iostream>
 
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
@@ -35,11 +34,6 @@ void ObjectDetector::write(const uint16_t *data, size_t length) {
         }
         auto int_y = dc_prev_y;
 
-        if (m_timestamp % 16 == 0)
-            std::cout << std::endl << m_timestamp << ": ";
-    
-        std::cout << " " << int_y;
-
         // object detector
         bool v = int_y > m_threshold;
         if (v) {
@@ -58,10 +52,10 @@ void ObjectDetector::write(const uint16_t *data, size_t length) {
                 // append object
                 detected_object_t obj;
                 obj.start = m_obj_start;
-                obj.end = m_timestamp;
-                obj.len = static_cast<uint32_t>(obj.end - obj.start);
+                obj.len = static_cast<uint32_t>(m_timestamp - obj.start);
                 obj.power = m_obj_power;
                 obj.ampl = m_obj_ampl;
+                obj.source = 0;
                 if (obj.len >= m_min_length) {
                     results.push_back(obj);
                 }

@@ -240,13 +240,13 @@ void test_detector() {
     TEST_ASSERT_EQUAL(4, det.results.size());
 
     TEST_ASSERT_EQUAL(233, det.results[0].start);
-    TEST_ASSERT_EQUAL(264, det.results[0].end);
+    TEST_ASSERT_EQUAL(264 - 233, det.results[0].len);
     TEST_ASSERT_EQUAL(783, det.results[1].start);
-    TEST_ASSERT_EQUAL(817, det.results[1].end);
+    TEST_ASSERT_EQUAL(817 - 783, det.results[1].len);
     TEST_ASSERT_EQUAL(1950, det.results[2].start);
-    TEST_ASSERT_EQUAL(1963, det.results[2].end);
+    TEST_ASSERT_EQUAL(1963 - 1950, det.results[2].len);
     TEST_ASSERT_EQUAL(1964, det.results[3].start);
-    TEST_ASSERT_EQUAL(1976, det.results[3].end);
+    TEST_ASSERT_EQUAL(1976 - 1964, det.results[3].len);
 }
 
 int main(int argc, char **argv) {
