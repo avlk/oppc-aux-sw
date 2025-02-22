@@ -91,7 +91,7 @@ void analog_task(void *pvParameters) {
         const queued_adc::adc_queue_msg_t *msg;
         constexpr size_t out_buf_len{ADC_BUF_LEN/2};
         size_t len;
-        uint16_t out_buf[out_buf_len];
+        int16_t out_buf[out_buf_len];
 
         // receive ADC data buffer
         stat.dma_samples++;

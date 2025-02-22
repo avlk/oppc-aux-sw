@@ -13,7 +13,7 @@ void tearDown(void) {
 
 void test_circular_buffer_fill() {
     CircularBuffer cbuf(128);
-    uint16_t data[64];
+    int16_t data[64];
 
     TEST_ASSERT_EQUAL(0, cbuf.get_data_ptr());
     cbuf.write(data, 16);
@@ -26,7 +26,7 @@ void test_circular_buffer_fill() {
 
 void test_circular_buffer_chunks() {
     CircularBuffer cbuf(128);
-    uint16_t data[64];
+    int16_t data[64];
 
     cbuf.write(data, 16);
     TEST_ASSERT_EQUAL(16, cbuf.get_data_ptr());
@@ -68,7 +68,7 @@ void test_circular_buffer_chunks() {
 void test_break_chunks() {
     CircularBuffer a(64);
     CircularBuffer b(16);
-    uint16_t data[64];
+    int16_t data[64];
     // Set a (larger) at 50% fill, position 32
     // Set b (smaller) at 75% fill, position 12
 
@@ -138,7 +138,7 @@ void test_break_chunks() {
 void test_correlator() {
     CircularBuffer a(64);
     CircularBuffer b(16);
-    uint16_t data[64];
+    int16_t data[64];
     size_t n;
 
     for (n = 0; n < 64; n++)

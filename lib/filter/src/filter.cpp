@@ -16,7 +16,7 @@ using namespace filter;
 #endif
 
 EXECUTE_FROM_RAM("fir")
-void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
+void FIRFilter::write(const int16_t *data, size_t length, size_t step) {
     auto coefficients_size = m_coefficients.size();
     auto data_counter = m_data_counter;
 
@@ -35,7 +35,12 @@ void FIRFilter::write(const uint16_t *data, size_t length, size_t step) {
         // Do not calculate filter output when output buffer is full
         if (likely(m_out_cnt < FILTER_OUTPUT_LEN)) {
             // put value into the buffer
-            m_out_buf[m_out_cnt++] = process_one();
+            int32_t out_val = process_one();
+            if (out_val > INT16_MAX)
+                out_val = INT16_MAX;
+            if (out_val < INT16_MIN)
+                out_val = INT16_MIN;
+            m_out_buf[m_out_cnt++] = out_val; 
         } else {
             overflow_cnt++;
         }
@@ -119,51 +124,35 @@ int32_t FIRFilter::process_one_sym() {
     return result >> m_gain_bits;
 }
 
+void FIRFilter::consume(size_t max_length) {
+    size_t consume_size = std::min(m_out_cnt, max_length);
+    if (!consume_size)
+        return;
+
+    if (consume_size == m_out_cnt)
+        m_out_cnt = 0;
+    else {
+        memmove(m_out_buf, &m_out_buf[consume_size], sizeof(m_out_buf[0]) * (m_out_cnt - consume_size));
+        m_out_cnt = m_out_cnt - consume_size;
+    }
+}
+
 // Returns requested number of samples or less
-size_t FIRFilter::read(int32_t *out, size_t max_length) {
+size_t FIRFilter::read(int16_t *out, size_t max_length) {
     size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
         return output_size;
     // copy to output
     memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
-
-    if (output_size == m_out_cnt)
-        m_out_cnt = 0;
-    else {
-        memmove(m_out_buf, &m_out_buf[output_size], sizeof(m_out_buf[0]) * (m_out_cnt - output_size));
-        m_out_cnt = m_out_cnt - output_size;
-    }
-
-    return output_size;
-}
-
-// Returns requested number of samples or less
-size_t FIRFilter::read(uint16_t *out, size_t max_length) {
-    size_t output_size = std::min(m_out_cnt, max_length);
-    if (!output_size)
-        return output_size;
-    for (size_t n = 0; n < output_size; n++) {
-        auto val = m_out_buf[n];
-        if (val < 0)
-            val = 0;
-        if (val > UINT16_MAX) 
-            val = UINT16_MAX;
-        out[n] = val;
-    }
-    if (output_size == m_out_cnt)
-        m_out_cnt = 0;
-    else {
-        memmove(m_out_buf, &m_out_buf[output_size], sizeof(m_out_buf[0]) * (m_out_cnt - output_size));
-        m_out_cnt = m_out_cnt - output_size;
-    }
-
+    // remove from buffer
+    consume(output_size);
     return output_size;
 
 }
 
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
 EXECUTE_FROM_RAM("cic")
-void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t length, 
+void CICFilter<order, decimation_factor>::write(const int16_t *data, size_t length, 
                                                 size_t step) {
     size_t n, ord;
     int32_t stage_in;
@@ -196,7 +185,13 @@ void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t len
 
         // Do not calculate filter output when output buffer is full
         if (likely(m_out_cnt < FILTER_OUTPUT_LEN)) {
-            m_out_buf[m_out_cnt++] = stage_in;
+            // downscale, clip and truncate
+            int32_t out_val = stage_in / (1 << m_attenuate_shift);
+            if (out_val > INT16_MAX)
+                out_val = INT16_MAX;
+            if (out_val < INT16_MIN)
+                out_val = INT16_MIN;
+            m_out_buf[m_out_cnt++] = out_val;
         } else {
             overflow_cnt++;
         }
@@ -205,28 +200,32 @@ void CICFilter<order, decimation_factor>::write(const uint16_t *data, size_t len
     m_data_counter = data_counter;
 }
 
+template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
+EXECUTE_FROM_RAM("cic")
+void CICFilter<order, decimation_factor>::consume(size_t max_length) {
+    size_t consume_size = std::min(m_out_cnt, max_length);
+    if (!consume_size)
+        return;
+
+    if (consume_size == m_out_cnt)
+        m_out_cnt = 0;
+    else {
+        memmove(m_out_buf, &m_out_buf[consume_size], sizeof(m_out_buf[0]) * (m_out_cnt - consume_size));
+        m_out_cnt = m_out_cnt - consume_size;
+    }
+}
+
 // Returns requested number of samples or less
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
 EXECUTE_FROM_RAM("cic")
-size_t CICFilter<order, decimation_factor>::read(uint16_t *out, size_t max_length) {
+size_t CICFilter<order, decimation_factor>::read(int16_t *out, size_t max_length) {
     size_t output_size = std::min(m_out_cnt, max_length);
     if (!output_size)
         return output_size;
-    for (size_t n = 0; n < output_size; n++) {
-        auto val = m_out_buf[n] >> m_attenuate_shift;
-        if (val < 0)
-            val = 0;
-        if (val > UINT16_MAX) 
-            val = UINT16_MAX;
-        out[n] = val;
-    }
-    if (output_size == m_out_cnt)
-        m_out_cnt = 0;
-    else {
-        memmove(m_out_buf, &m_out_buf[output_size], sizeof(m_out_buf[0]) * (m_out_cnt - output_size));
-        m_out_cnt = m_out_cnt - output_size;
-    }
-
+    // copy to output
+    memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
+    // remove from buffer
+    consume(output_size);
     return output_size;
 }
 

@@ -9,10 +9,10 @@
 #include "cli_out.h"
 #include "io.h"
 
-static uint adc_dma_chan[2];
+static uint32_t adc_dma_chan[2];
 static dma_channel_config adc_dma_cfg[2];
-static uint16_t adc_buf0[ADC_BUF_LEN];
-static uint16_t adc_buf1[ADC_BUF_LEN];
+static int16_t adc_buf0[ADC_BUF_LEN];
+static int16_t adc_buf1[ADC_BUF_LEN];
 
 static const adc_dma_config_t *dma_config_default = NULL;
 static const adc_dma_config_t *dma_config_current = NULL;

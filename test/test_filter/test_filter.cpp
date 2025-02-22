@@ -48,10 +48,10 @@ static std::vector<float> hamming_1000_200_200_step_response {
     1.0
 };
 
-static uint16_t input_one_level = 1024;
-static std::vector<int32_t> expected_step_response;
+static int16_t input_one_level = 1024;
+static std::vector<int16_t> expected_step_response;
 void setUp(void) {
-    // set up int32_t step response
+    // set up int16_t step response
 
     for (size_t n = 0; n < hamming_1000_200_200_step_response.size(); n++) {
         expected_step_response.push_back((hamming_1000_200_200_step_response[n] * input_one_level));
@@ -62,11 +62,11 @@ void tearDown(void) {
     // clean stuff up here
 }
 
-static bool nearly_equal(int32_t a, int32_t b) {
+static bool nearly_equal(int16_t a, int16_t b) {
     return abs(a - b) <= 1;
 }
 
-static void check_response(int32_t out[17], bool debug=false) {
+static void check_response(int16_t out[17], bool debug=false) {
     size_t n;
 
     if (debug) {
@@ -87,9 +87,9 @@ static void check_response(int32_t out[17], bool debug=false) {
 void test_fir_filter_transfer_func(const std::vector<float> &coeff, bool symm,
                                    size_t start_buffer_position) {
     filter::FIRFilter filter(coeff, 1);
-    uint16_t data[32];
+    int16_t data[32];
     size_t n;
-    int32_t out[17];
+    int16_t out[17];
 
 #if 0
     for (n = 0; n < hamming_1000_200_200.size(); n++) {
@@ -151,7 +151,7 @@ void test_fir_filter_asymmetric() {
 
 void test_fir_filter_interleave() {
     filter::FIRFilter filter(hamming_1000_200_200, 1);
-    uint16_t data[66] = {0};
+    int16_t data[66] = {0};
     size_t n;
 
     for (n = 0; n < 17; n++) // 17 ones - generates 17 outputs
@@ -161,7 +161,7 @@ void test_fir_filter_interleave() {
 
     TEST_ASSERT_EQUAL_INT(17, filter.out_len()); 
 
-    int32_t out[17];
+    int16_t out[17];
     TEST_ASSERT_EQUAL_INT(17, filter.read(out, 17));
 
     check_response(out);
@@ -169,7 +169,7 @@ void test_fir_filter_interleave() {
 
 void test_fir_filter_decimate() {
     filter::FIRFilter filter(hamming_1000_200_200, 4);
-    uint16_t data[32] = {0}; 
+    int16_t data[32] = {0}; 
     size_t n;
 
     for (n = 0; n < 32; n++) // 32 ones
@@ -179,7 +179,7 @@ void test_fir_filter_decimate() {
 
     TEST_ASSERT_EQUAL_INT(16, filter.out_len());
 
-    int32_t out[16] = {0};
+    int16_t out[16] = {0};
     TEST_ASSERT_EQUAL_INT(16, filter.read(out, 16));
 
     // [samples for which data is output]
@@ -209,7 +209,7 @@ static std::vector<float> cic_impulse_response_M4_R5 = {
 
 void test_cic_filter_response() {
     filter::CICFilter<4,5> filter;
-    uint16_t data[20] = {0};
+    int16_t data[20] = {0};
     size_t n;
 
     TEST_ASSERT_EQUAL_FLOAT(625.0/512.0, filter.gain());
@@ -221,7 +221,7 @@ void test_cic_filter_response() {
 
     TEST_ASSERT_EQUAL_INT(4, filter.out_len());
 
-    uint16_t out[4] = {0};
+    int16_t out[4] = {0};
     TEST_ASSERT_EQUAL_INT(4, filter.read(out, 4));
 
 #if 0

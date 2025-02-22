@@ -38,9 +38,9 @@
 void filter_benchmark_cic_cpp(size_t rounds, int stage) {
     filter::CICFilter</* M */4, /* R */5> filter_first;
 
-    uint16_t rx_buf[ADC_BUF_LEN];
+    int16_t rx_buf[ADC_BUF_LEN];
     constexpr size_t out_buf_len{ADC_BUF_LEN};
-    uint16_t out_buf[out_buf_len];
+    int16_t out_buf[out_buf_len];
 
     memset(rx_buf, 0, sizeof(rx_buf));
     rx_buf[0] = 1000;
@@ -157,8 +157,8 @@ void filter_benchmark_fir(size_t rounds, int stage) {
     filter::FIRFilter filter_second(fir_lp_48k_5k, 3);
     
     constexpr size_t out_buf_len{ADC_BUF_LEN};
-    uint16_t out_buf[out_buf_len];
-    uint16_t rx_buf[64];
+    int16_t out_buf[out_buf_len];
+    int16_t rx_buf[64];
 
     memset(rx_buf, 0, sizeof(rx_buf));
     rx_buf[0] = 1000;
@@ -171,7 +171,7 @@ void filter_benchmark_fir(size_t rounds, int stage) {
 
         if (filter_second.out_len() > 64) {
             if (stage == 1)
-                filter_second.out_flush();
+                filter_second.consume(filter_second.out_len());
             else
                 filter_second.read(out_buf, out_buf_len);
         }
@@ -189,8 +189,8 @@ void correlator_benchmark(size_t rounds, int stage) {
 
     correlator::CircularBuffer buf_a(buf_fill); // 0.7s
     correlator::CircularBuffer buf_b(300*ms);  // 0.3s
-    uint16_t buf1[16];
-    uint16_t buf2[16];
+    int16_t buf1[16];
+    int16_t buf2[16];
     for (unsigned int n = 0; n < 16; n ++) {
         buf1[n] = 100;
         buf2[n] = 100;
@@ -238,9 +238,9 @@ void filter_benchmark(size_t rounds, int stage) {
     // Has output rate of 16ksps
     filter::FIRFilter filter_second(fir_lp_48k_5k, 3);
 
-    uint16_t rx_buf[ADC_BUF_LEN];
+    int16_t rx_buf[ADC_BUF_LEN];
     constexpr size_t out_buf_len{ADC_BUF_LEN};
-    uint16_t out_buf[out_buf_len];
+    int16_t out_buf[out_buf_len];
 
     memset(rx_buf, 0, sizeof(rx_buf));
     rx_buf[0] = 1000;
@@ -281,7 +281,7 @@ void filter_benchmark(size_t rounds, int stage) {
         if (filter_second.out_len() > 64) {
             int avg{0};
             if (stage == 3)
-                filter_second.out_flush();
+                filter_second.consume(filter_second.out_len());
             else
                 filter_second.read(out_buf, out_buf_len);
         }

@@ -8,7 +8,7 @@
 namespace correlator {
 
 typedef struct {
-    uint16_t *start;
+    int16_t *start;
     size_t length;
 } processing_unit_t;
 
@@ -21,18 +21,18 @@ class CircularBuffer final {
 public:
     CircularBuffer(size_t size) : m_capacity{size} {
         // TODO throw something if it fails
-        m_data = new uint16_t[size];
+        m_data = new int16_t[size];
     }
 
     ~CircularBuffer() {
         delete[] m_data;
     }
 
-    const uint16_t *get_data() { return m_data; }
+    const int16_t *get_data() { return m_data; }
     size_t get_data_ptr() const { return m_data_ptr; }
     size_t get_capacity() const { return m_capacity; }
 
-    void write(const uint16_t *buf, size_t length);
+    void write(const int16_t *buf, size_t length);
 
     // Returns 1 or 2 chunks for the contiguous region
     // of length <= m_capacity and starting at start (start < 0) 
@@ -41,7 +41,7 @@ public:
     size_t get_data_chunks_c(int start, int length, processing_unit_t out[2]) const;
 
 private:
-    uint16_t *m_data;
+    int16_t *m_data;
     size_t   m_data_ptr{0};
     size_t   m_capacity;
 };

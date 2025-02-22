@@ -14,7 +14,7 @@
 using namespace detector;
 
 EXECUTE_FROM_RAM("det")
-void ObjectDetector::write(const uint16_t *data, size_t length) {
+void ObjectDetector::write(const int16_t *data, size_t length) {
     auto dc_acc = m_dc_acc;
     auto dc_prev_x = m_dc_prev_x;
     auto dc_prev_y = m_dc_prev_y;

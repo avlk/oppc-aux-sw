@@ -9,14 +9,14 @@
 class AVGConsumer: public IADCDataConsumer {
 public:
     AVGConsumer(size_t consume_length) : m_consume_length{consume_length} { 
-        m_samples = new uint16_t[m_consume_length];
+        m_samples = new int16_t[m_consume_length];
     }
 
     virtual ~AVGConsumer() {
         delete[] m_samples;
     }
 
-    virtual bool adc_consume(const uint16_t *buf, size_t buf_len) override {
+    virtual bool adc_consume(const int16_t *buf, size_t buf_len) override {
         if (m_done) {
             return false;
         }
@@ -57,7 +57,7 @@ public:
         if (!m_samples_fill)
             return std::make_pair(.0f, .0f);
         
-        uint64_t sum{0};
+        int64_t sum{0};
         for (n = 0; n < m_samples_fill; n++) {
             sum += m_samples[n];
         }
@@ -78,7 +78,7 @@ private:
 
     size_t m_consume_length;
     size_t m_samples_fill{0};
-    uint16_t *m_samples;
+    int16_t *m_samples;
     bool m_skip_first{true};
     bool m_done{false};
 };
@@ -128,7 +128,7 @@ QueuedADCConsumer::QueuedADCConsumer() : IADCDataConsumer() {
 }
 
 
-bool QueuedADCConsumer::adc_consume(const uint16_t *buf, size_t buf_len) {
+bool QueuedADCConsumer::adc_consume(const int16_t *buf, size_t buf_len) {
     if (m_skip_first) {
         // First block of measurements can contain samples of previous measurements
         // it's easier to skip one block than to find out what is wrong with DMA

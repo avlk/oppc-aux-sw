@@ -11,7 +11,7 @@ class DefaultADCConsumer : public IADCDataConsumer {
 public:
     DefaultADCConsumer() : IADCDataConsumer() { }
     virtual ~DefaultADCConsumer() = default;
-    virtual bool adc_consume(const uint16_t *buf, size_t buf_len) override { return false; }
+    virtual bool adc_consume(const int16_t *buf, size_t buf_len) override { return false; }
     virtual void adc_event(adc_event_t event) override { }
 };
 
@@ -19,7 +19,7 @@ public:
 namespace queued_adc {
 typedef struct {
     uint32_t timestamp;
-    uint16_t buffer[ADC_BUF_LEN];
+    int16_t  buffer[ADC_BUF_LEN];
 } adc_queue_msg_t;
 
 constexpr size_t ADC_QUEUE_LEN{8};
@@ -27,7 +27,7 @@ class QueuedADCConsumer : public IADCDataConsumer {
 public:
     QueuedADCConsumer(); 
     virtual ~QueuedADCConsumer() = default;
-    virtual bool adc_consume(const uint16_t *buf, size_t buf_len) override;
+    virtual bool adc_consume(const int16_t *buf, size_t buf_len) override;
     virtual void adc_event(adc_event_t event) override;
 
     const adc_queue_msg_t *receive_msg(uint32_t timeout_ms) { 
@@ -60,8 +60,8 @@ constexpr size_t DATA_QUEUE_LEN{3};
 
 typedef struct {
     uint32_t timestamp;
-    uint16_t buffer_a[DATA_BUF_LEN];
-    uint16_t buffer_b[DATA_BUF_LEN];
+    int16_t buffer_a[DATA_BUF_LEN];
+    int16_t buffer_b[DATA_BUF_LEN];
 } data_queue_msg_t;
 
 

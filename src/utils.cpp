@@ -39,3 +39,18 @@ std::string format_vec(const uint16_t *vec, size_t len, const char *format) {
     }
     return str;
 }
+
+std::string format_vec(const int16_t *vec, size_t len, const char *format) {
+    std::string str{};
+    char buf[16];
+
+    if (!format)
+        format = "%04hx";
+    for (size_t n = 0; n < len; n++) {
+        if (!str.empty())
+            str.append(" ");
+        std::snprintf(buf, sizeof(buf), format, vec[n]);
+        str.append(buf);
+    }
+    return str;
+}

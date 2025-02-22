@@ -29,8 +29,8 @@ public:
     ObjectDetector(int32_t threshold, uint32_t min_length) : 
         m_threshold{threshold}, m_min_length{min_length} {}
 
-    void preinit(uint16_t val) { m_dc_prev_x = val * (1 << DC_BASE_SHIFT); }
-    void write(const uint16_t *data, size_t length);
+    void preinit(int16_t val) { m_dc_prev_x = val * (1 << DC_BASE_SHIFT); }
+    void write(const int16_t *data, size_t length);
     uint64_t get_timestamp() { return m_timestamp; }
 
     std::deque<detected_object_t> results{};

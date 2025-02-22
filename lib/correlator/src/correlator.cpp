@@ -16,7 +16,7 @@ using namespace correlator;
 #endif
 
 
-void CircularBuffer::write(const uint16_t *buf, size_t length) {
+void CircularBuffer::write(const int16_t *buf, size_t length) {
     if (length > m_capacity) {
         // Store only latest data
         buf += (length - m_capacity);
@@ -25,11 +25,11 @@ void CircularBuffer::write(const uint16_t *buf, size_t length) {
 
     if (m_data_ptr + length > m_capacity) {
         const size_t first_chunk = m_capacity - m_data_ptr;
-        std::memcpy(m_data + m_data_ptr, buf, first_chunk*sizeof(uint16_t));
-        std::memcpy(m_data, buf + first_chunk, (length - first_chunk)*sizeof(uint16_t));
+        std::memcpy(m_data + m_data_ptr, buf, first_chunk*sizeof(int16_t));
+        std::memcpy(m_data, buf + first_chunk, (length - first_chunk)*sizeof(int16_t));
         m_data_ptr = (length - first_chunk);
     } else {
-        std::memcpy(m_data + m_data_ptr, buf, length*sizeof(uint16_t));
+        std::memcpy(m_data + m_data_ptr, buf, length*sizeof(int16_t));
         m_data_ptr += length;
     }        
 }
@@ -155,8 +155,8 @@ size_t correlator::break_chunks(const CircularBuffer &a,
 
 static uint64_t correlate_pair(const processing_pair_t& p) {
     uint64_t sum{0};
-    const uint16_t *pa{p.a.start};
-    const uint16_t *pb{p.b.start};
+    const int16_t *pa{p.a.start};
+    const int16_t *pb{p.b.start};
     uint32_t subsum;
     constexpr size_t batch_size{16};
     size_t len{p.a.length};
