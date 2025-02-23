@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <vector>
+#include "filter.h"
 #include "detector.h"
 
 std::vector<int16_t> test_input = {
@@ -213,7 +214,7 @@ void setUp(void) {
 void tearDown(void) {
 }
 
-void test_detector() {
+void test_dc_filter_and_detector() {
     auto data = test_input.data();
     auto data_len = test_input.size();
 
@@ -221,16 +222,21 @@ void test_detector() {
     for (size_t n = 0; n < data_len; n++)
         sum += data[n];
 
+    // Tests DC blocking filter and detector
+    filter::DCBlockFilter dc;
     ObjectDetector det(8, 10);
     // Preinitialize with average so that it does not converge long to zero offset
-    det.preinit(sum/data_len);
+    dc.preinit(sum/data_len);
     
     // Write in chunks to make sure write() is working well with multiple calls
     int rem_len = data_len;
     auto rem_data{data};
     while (rem_len) { 
         size_t to_write = std::min(rem_len, 32);
-        det.write(rem_data, to_write);
+        dc.write(rem_data, to_write);
+        auto dc_len = dc.out_len();
+        det.write(dc.out_buf(), dc_len);
+        dc.consume(dc_len);
         rem_data += to_write;
         rem_len -= to_write;
     }
@@ -252,7 +258,7 @@ void test_detector() {
 int main(int argc, char **argv) {
     UNITY_BEGIN();
 
-    RUN_TEST(test_detector);
+    RUN_TEST(test_dc_filter_and_detector);
  
     UNITY_END();
 }

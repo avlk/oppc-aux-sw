@@ -147,7 +147,6 @@ size_t FIRFilter::read(int16_t *out, size_t max_length) {
     // remove from buffer
     consume(output_size);
     return output_size;
-
 }
 
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
@@ -232,3 +231,63 @@ size_t CICFilter<order, decimation_factor>::read(int16_t *out, size_t max_length
 
 // Pre-instantiate templated classes for requested cases
 template class CICFilter<4,5>;
+
+
+EXECUTE_FROM_RAM("dcblock")
+void DCBlockFilter::write(const int16_t *data, size_t length) {
+    auto dc_acc = m_dc_acc;
+    auto dc_prev_x = m_dc_prev_x;
+    auto dc_prev_y = m_dc_prev_y;
+
+    while (length--) {
+        int32_t sample = *data++;
+
+        // DC removal stage
+        // https://dspguru.com/dsp/tricks/fixed-point-dc-blocking-filter-with-noise-shaping/
+        // https://www.iro.umontreal.ca/~mignotte/IFT3205/Documents/TipsAndTricks/DCBlockerAlgorithms.pdf
+        {
+            dc_acc -= dc_prev_x;
+            dc_prev_x = sample << DC_BASE_SHIFT;
+            dc_acc += dc_prev_x;
+            dc_acc -= DC_POLE_NUM*dc_prev_y; 
+            dc_prev_y = dc_acc / (1 << DC_BASE_SHIFT); // hopefully translates to ASR
+        }
+        auto int_y = dc_prev_y;
+
+        if (likely(m_out_cnt < FILTER_OUTPUT_LEN)) {
+            // downscale, clip and truncate
+            m_out_buf[m_out_cnt++] = int_y;
+        } else {
+            overflow_cnt++;
+        }
+    }
+
+    m_dc_acc = dc_acc;
+    m_dc_prev_x = dc_prev_x;
+    m_dc_prev_y = dc_prev_y;
+}
+
+void DCBlockFilter::consume(size_t max_length) {
+    size_t consume_size = std::min(m_out_cnt, max_length);
+    if (!consume_size)
+        return;
+
+    if (consume_size == m_out_cnt)
+        m_out_cnt = 0;
+    else {
+        memmove(m_out_buf, &m_out_buf[consume_size], sizeof(m_out_buf[0]) * (m_out_cnt - consume_size));
+        m_out_cnt = m_out_cnt - consume_size;
+    }
+}
+
+// Returns requested number of samples or less
+size_t DCBlockFilter::read(int16_t *out, size_t max_length) {
+    size_t output_size = std::min(m_out_cnt, max_length);
+    if (!output_size)
+        return output_size;
+    // copy to output
+    memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
+    // remove from buffer
+    consume(output_size);
+    return output_size;
+}

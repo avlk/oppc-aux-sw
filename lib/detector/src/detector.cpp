@@ -15,36 +15,21 @@ using namespace detector;
 
 EXECUTE_FROM_RAM("det")
 void ObjectDetector::write(const int16_t *data, size_t length) {
-    auto dc_acc = m_dc_acc;
-    auto dc_prev_x = m_dc_prev_x;
-    auto dc_prev_y = m_dc_prev_y;
 
     while (length--) {
         int32_t sample = *data++;
 
-        // DC removal stage
-        // https://dspguru.com/dsp/tricks/fixed-point-dc-blocking-filter-with-noise-shaping/
-        // https://www.iro.umontreal.ca/~mignotte/IFT3205/Documents/TipsAndTricks/DCBlockerAlgorithms.pdf
-        {
-            dc_acc -= dc_prev_x;
-            dc_prev_x = sample << DC_BASE_SHIFT;
-            dc_acc += dc_prev_x;
-            dc_acc -= DC_POLE_NUM*dc_prev_y; 
-            dc_prev_y = dc_acc / (1 << DC_BASE_SHIFT); // hopefully translates to ASR
-        }
-        auto int_y = dc_prev_y;
-
         // object detector
-        bool v = int_y > m_threshold;
+        bool v = sample > m_threshold;
         if (v) {
             if (!m_in_obj) {
                 m_in_obj = true;
                 m_obj_start = m_timestamp;
-                m_obj_ampl = int_y;
-                m_obj_power = int_y;
+                m_obj_ampl = sample;
+                m_obj_power = sample;
             } else {
-                m_obj_ampl = std::max(m_obj_ampl, int_y);
-                m_obj_power += int_y;
+                m_obj_ampl = std::max(m_obj_ampl, sample);
+                m_obj_power += sample;
             }
         } else {
             if (m_in_obj) {
@@ -64,9 +49,5 @@ void ObjectDetector::write(const int16_t *data, size_t length) {
 
         m_timestamp++;
     }
-
-    m_dc_acc = dc_acc;
-    m_dc_prev_x = dc_prev_x;
-    m_dc_prev_y = dc_prev_y;
 }
 

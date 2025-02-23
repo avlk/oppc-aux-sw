@@ -96,4 +96,38 @@ public:
     uint32_t overflow_cnt{0};
 };
 
+// DC filter pole would be (1 << DC_BASE_SHIFT - DC_POLE_NUM)/(1 << DC_BASE_SHIFT)
+// e.g. (32768 - 4)/32768 = 0.999878
+constexpr uint32_t DC_BASE_SHIFT{15};
+constexpr uint32_t DC_POLE_NUM{4}; 
+
+class DCBlockFilter final {
+public:
+    DCBlockFilter() {};
+    ~DCBlockFilter() = default;
+
+    void write(const int16_t *data, size_t length);
+    // Reads max_length output data into out, returns number of entries filled
+    size_t read(int16_t *out, size_t max_length);
+    // Returns output queue length
+    size_t out_len() { return m_out_cnt; }
+    // Returns pointer to the output values
+    int16_t *out_buf() { return m_out_buf; }
+    // Removes max_length first output entries
+    void  consume(size_t max_length);
+
+    void preinit(int16_t val) { m_dc_prev_x = val * (1 << DC_BASE_SHIFT); }
+
+private:
+    size_t  m_out_cnt{0};
+    int16_t m_out_buf[FILTER_OUTPUT_LEN];
+    // DC removal internal data
+    int32_t m_dc_acc{0};
+    int32_t m_dc_prev_x{0};
+    int32_t m_dc_prev_y{0};
+
+public:
+    uint32_t overflow_cnt{0};
+};
+
 }
