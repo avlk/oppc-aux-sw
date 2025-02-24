@@ -79,6 +79,7 @@ cli_result_t status_cmd(size_t argc, const char *argv[]) {
 
 cli_result_t results_cmd(size_t argc, const char *argv[]) {
     int n = 0;
+#if 0
     auto q = get_detector_results_q();
 
     while (true) {
@@ -90,6 +91,18 @@ cli_result_t results_cmd(size_t argc, const char *argv[]) {
             r.source, r.start, r.len, r.ampl, r.power);
         n++;
     }    
+#else
+    auto q = get_correlator_results_q();
+
+    while (true) {
+        correlator_result_t r;
+
+        if (xQueueReceive(q, &r, 0) != pdPASS)
+            break;
+        cli_debug("source=%d, start=%d, peak=%.1f", r.source, r.offset, r.peak);
+        n++;
+    }    
+#endif
     cli_info("new_results %d", n);
 
     return CMD_OK;
@@ -323,12 +336,10 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
     const auto stat = get_signal_chain_stat();
     cli_info("adc_offset %d", adc_offset);
     cli_info("dma_samples %d", stat->dma_samples);
-    cli_info("consumer_samples %d", stat->consumer_samples);
+    cli_info("filter_in %d", stat->filter_in);
+    cli_info("filter_out %d", stat->filter_out);
+    cli_info("correlator_in %d", stat->correlator_in);
     cli_info("correlator_runs %d", stat->correlator_runs);
-    cli_info("filter_in[0] %d", stat->filter_in[0]);
-    cli_info("filter_in[1] %d", stat->filter_in[1]);
-    cli_info("filter_out[0] %d", stat->filter_out[0]);
-    cli_info("filter_out[1] %d", stat->filter_out[1]);
     cli_info("correlator_runtime %d", stat->correlator_runtime);
 
     return CMD_OK;
@@ -362,15 +373,17 @@ void setup() {
     init_flash();
     init_signal_chain();
 
-    TaskHandle_t t_heartbeat, t_analog, t_correlator;
+    TaskHandle_t t_heartbeat, t_analog, t_correlator, t_detector;
     xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, &t_heartbeat);
     xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, &t_analog);
     xTaskCreate(correlator_task, "correlator", 2048, NULL, 2, &t_correlator);
+    xTaskCreate(detector_task, "detector", 2048, NULL, 2, &t_detector);
 
     // configure tasks to run on core 1, but correlator on core 2 
     vTaskCoreAffinitySet(t_heartbeat, 0x1);
     vTaskCoreAffinitySet(t_analog, 0x1);
     vTaskCoreAffinitySet(t_correlator, 0x2);
+    vTaskCoreAffinitySet(t_detector, 0x1);
 
     adc_begin();
 

@@ -4,6 +4,7 @@
 #include "analog.h"
 
 typedef struct {
+    int source;
     int offset;
     float peak;
 } correlator_result_t;
@@ -21,9 +22,10 @@ typedef struct {
 
 typedef struct {
     uint32_t dma_samples;
-    uint32_t filter_in[2];
-    uint32_t filter_out[2];
-    uint32_t consumer_samples;
+    uint32_t filter_in;
+    uint32_t filter_out;
+    uint32_t detector_out;
+    uint32_t correlator_in;
     uint32_t correlator_runs;
     uint32_t correlator_runtime;
 } signal_chain_stat_t;
@@ -31,9 +33,11 @@ typedef struct {
 const signal_chain_stat_t *get_signal_chain_stat();
 std::shared_ptr<data_queue::DataTap<circular_buf_tap_t>> get_circ_buf_tap();
 QueueHandle_t get_detector_results_q();
+QueueHandle_t get_correlator_results_q();
 
 void analog_task(void *pvParameters);
 void correlator_task(void *pvParameters);
+void detector_task(void *pvParameters);
 
 void init_signal_chain();
 
