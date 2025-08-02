@@ -64,7 +64,7 @@ size_t break_chunks(const CircularBuffer &a, const CircularBuffer &b,
                 int start_a, int start_b, int length,     
                 processing_pair_t pairs[4]);
 
-typedef std::function<void(int32_t, uint64_t)> correlate_callback_t;
+typedef std::function<void(int32_t, int64_t)> correlate_callback_t;
 
 /*
  * Performs correlation of buffers `a` and `b`, where `b` is treated as a needle,
@@ -83,7 +83,7 @@ void correlate(const CircularBuffer &a,
 /*
  * Performs correlation as in correlate(), but returns peak value offset and value
  */
-std::pair<int32_t, uint64_t> correlate_max(const CircularBuffer &a,
+std::pair<int32_t, int64_t> correlate_max(const CircularBuffer &a,
                                        const CircularBuffer &b,
                                        uint32_t a_offset_min, 
                                        uint32_t a_offset_max,

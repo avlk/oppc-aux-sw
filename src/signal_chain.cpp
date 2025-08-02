@@ -18,6 +18,27 @@ QueueHandle_t correlator_results_q{nullptr};
 static std::shared_ptr<data_queue::DataTap<circular_buf_tap_t>> circ_buf_tap{nullptr};
 static std::shared_ptr<data_queue::DataTap<correlator_tap_t>> correlator_tap{nullptr};
 
+#if 0
+constexpr unsigned int len_threshold{10};
+constexpr unsigned int det_threshold{8};
+#else
+constexpr unsigned int len_threshold{10};
+constexpr unsigned int det_threshold{12};
+#endif
+
+#define TAP_CIC_A 0x01
+#define TAP_CIC_B 0x10
+#define TAP_FIR_A 0x02
+#define TAP_FIR_B 0x20
+#define TAP_DC_A  0x04
+#define TAP_DC_B  0x40
+
+volatile struct {
+    bool set;
+    uint32_t mask;
+    size_t len;
+} tap_cmd;
+
 const signal_chain_stat_t *get_signal_chain_stat() {
     return &stat;
 }
@@ -32,6 +53,12 @@ QueueHandle_t get_detector_results_q() {
 
 QueueHandle_t get_correlator_results_q() {
     return correlator_results_q;
+}
+
+void signal_chain_tap(uint32_t mask, size_t len) {
+    tap_cmd.mask = mask;
+    tap_cmd.len = len;
+    tap_cmd.set = true;
 }
 
 // FIR low pass filter 
@@ -81,8 +108,6 @@ void analog_task(void *pvParameters) {
     filter::FIRFilter filter_second_a(fir_lp_48k_5k, 3);
     filter::FIRFilter filter_second_b(fir_lp_48k_5k, 3);
 
-    constexpr unsigned int len_threshold{10};
-    constexpr unsigned int det_threshold{8};
     detector::ObjectDetector det_a(det_threshold, len_threshold);
     detector::ObjectDetector det_b(det_threshold, len_threshold);
     filter::DCBlockFilter filter_dc_a;
@@ -108,6 +133,22 @@ void analog_task(void *pvParameters) {
         if (!msg) // should not happen
             continue;
 
+        if (tap_cmd.set) {
+            tap_cmd.set = false;
+            if (tap_cmd.mask & TAP_CIC_A)
+                filter_first_a.tap_data(1, tap_cmd.len);
+            if (tap_cmd.mask & TAP_CIC_B)
+                filter_first_b.tap_data(2, tap_cmd.len);
+            if (tap_cmd.mask & TAP_FIR_A)
+                filter_second_a.tap_data(3, tap_cmd.len);
+            if (tap_cmd.mask & TAP_FIR_B)
+                filter_second_b.tap_data(4, tap_cmd.len);
+            if (tap_cmd.mask & TAP_DC_A)
+                filter_dc_a.tap_data(5, tap_cmd.len);
+            if (tap_cmd.mask & TAP_DC_B)
+                filter_dc_b.tap_data(6, tap_cmd.len);
+        }
+    
         // .. process incoming stage
         stat.filter_in += ADC_BUF_LEN/2;
         filter_first_a.write(msg->buffer, ADC_BUF_LEN, 2);
@@ -126,7 +167,7 @@ void analog_task(void *pvParameters) {
         // output lengths of _a and _b filters are equal
         // DC block filter output = input
         size_t first_fill = filter_first_a.out_len();
-        if (first_fill > 16) {
+        if (first_fill >= 16) {
             filter_second_a.write(filter_first_a.out_buf(), first_fill);
             filter_first_a.consume(first_fill);
 
@@ -199,22 +240,26 @@ void correlator_task(void *pvParameters) {
     constexpr unsigned int offset_a_min{25*ms};
     constexpr unsigned int offset_a_max{300*ms};
 
-    // Circular buffers are for debug only
     correlator::CircularBuffer buf_a(600*ms);
     correlator::CircularBuffer buf_b(150*ms);
-    size_t data_cnt{0};
     
+    detector::ObjectDetector det_b(det_threshold, len_threshold);
+    size_t data_cnt{0};
+    constexpr size_t min_data_cnt{1500*ms};
+    detector::detected_object_t last_object_b{};
+
     while (true) {
         // receive ADC data buffer
         const auto msg = sample_queue->receive_msg();
         stat.correlator_in++;
-    
         constexpr auto rx_len{data_queue::DATA_BUF_LEN};
         // save data to circular buffers
         buf_a.write(msg->buffer_a, rx_len);
         buf_b.write(msg->buffer_b, rx_len);
-        data_cnt += rx_len;
+        // write data to object detector
+        det_b.write(msg->buffer_b, rx_len);
         sample_queue->receive_msg_return(msg);
+        data_cnt += rx_len;
     
         // Tap on raw data
         if (circ_buf_tap->is_triggered()) {
@@ -246,28 +291,36 @@ void correlator_task(void *pvParameters) {
             circ_buf_tap->complete();
         }
 
-        // Run correlator
-        if (data_cnt >= processing_interval) {
-            data_cnt = 0;
+        if (det_b.results.size() > 0) {
+            last_object_b = det_b.results.front();
+            det_b.results.clear();
+        }
 
+        bool run_correlator = (data_cnt > min_data_cnt) &&
+            (last_object_b.start != 0) &&
+            ((det_b.get_timestamp() - last_object_b.start) < buf_b.get_capacity());
+        last_object_b = {};
+        
+        // Run correlator
+        if (run_correlator) {
             stat.correlator_runs++;
+            data_cnt = 0;
 
             TickType_t start = xTaskGetTickCount();
 
-            int32_t max_index{0};
-            uint64_t max_val{0};
-            constexpr size_t bin_step{5*ms};
+            //int32_t max_index{0};
+            //int64_t max_val{0};
+            constexpr size_t bin_step{2*ms};
             constexpr size_t num_bins{(offset_a_max - offset_a_min)/bin_step};
-            static uint64_t bins[num_bins];
-            memset(bins, 0, sizeof(bins));
+            std::array<int64_t, num_bins> bins{};
 
-            correlator::correlate_callback_t f([&](int32_t offset, uint64_t sum) {
+            correlator::correlate_callback_t f([&](int32_t offset, int64_t sum) {
                 const auto bin_no = (offset - offset_a_min)/bin_step;
                 bins[bin_no] += sum;
-                if (sum > max_val) {
-                    max_val = sum;
-                    max_index = bin_no;
-                }
+                // if (sum > max_val) {
+                //     max_val = sum;
+                //     max_index = bin_no;
+                // }
             }); 
 
             correlator::correlate(buf_a, buf_b, offset_a_min, offset_a_max, buf_b.get_capacity(), f);
@@ -275,10 +328,14 @@ void correlator_task(void *pvParameters) {
             TickType_t stop = xTaskGetTickCount();
             stat.correlator_runtime = (stop - start) * portTICK_PERIOD_MS; // ms
 
+            const auto max_it = std::max_element(bins.cbegin(), bins.cend());
+            const auto max_index = max_it - bins.cbegin();
+            const auto max_offset = (max_index * bin_step) / ms;
+
             correlator_result_t res;
             res.source = 0;
-            res.offset = (offset_a_min + max_index * bin_step) / ms;
-            res.peak = max_val;
+            res.offset = max_offset; // (offset_a_min + max_index * bin_step) / ms;
+            res.peak = *max_it; // max_val;
             xQueueSendToBack(correlator_results_q, &res, 0);
 
             if (correlator_tap->is_triggered()) {
@@ -302,8 +359,8 @@ static bool detected_obj_compare_time(const detector::detected_object_t &a,
 void detector_task(void *pvParameters) {
     std::deque<detector::detected_object_t> obj_a;
     std::deque<detector::detected_object_t> obj_b;
-    constexpr size_t min_fill{100};
-    constexpr size_t history_size{250};
+    constexpr size_t min_fill{20};
+    constexpr size_t history_size{50};
     constexpr unsigned int fs{16000};
     constexpr unsigned int ms{fs/1000};
     constexpr int calculation_interval{5};
@@ -317,10 +374,13 @@ void detector_task(void *pvParameters) {
             continue;
 
         // store items
-        if (rx_obj.source == 0)
+        if (rx_obj.source == 0) {
+            stat.rx_obj[0]++;
             obj_a.push_back(rx_obj);
-        else
+        } else {
+            stat.rx_obj[1]++;
             obj_b.push_back(rx_obj);
+        }
 
         // remove outdated items
         while (obj_a.size() > history_size) 
@@ -336,11 +396,13 @@ void detector_task(void *pvParameters) {
                 n_input = 0;
 
             // do object correlation
+            constexpr size_t min_delay{25*ms};
             constexpr size_t max_delay{500*ms};
             constexpr size_t bin_step{2*ms};
             constexpr size_t num_bins{max_delay/bin_step};
             std::array<uint32_t, num_bins> bins{};
 
+            int n_cycles = 0;
             for (const auto &a: obj_a) {
                 auto b_left = std::lower_bound(obj_b.cbegin(), obj_b.cend(), a, detected_obj_compare_time);
             
@@ -353,17 +415,19 @@ void detector_task(void *pvParameters) {
                     auto bin = delay / bin_step;
                     if (bin < num_bins)
                         bins[bin]++;
+                    n_cycles++;
                 }
             }
-
-            const auto max_it = std::max_element(bins.cbegin(), bins.cend());
+            
+            auto start = bins.cbegin() + (min_delay / bin_step);
+            const auto max_it = std::max_element(start, bins.cend());
             const auto max_index = max_it - bins.cbegin();
             const auto max_offset = (max_index * bin_step) / ms;
 
             correlator_result_t res;
             res.source = 1;
             res.offset = max_offset;
-            res.peak = *max_it;
+            res.peak = n_cycles; //*max_it;
             xQueueSendToBack(correlator_results_q, &res, 0);
         }
     }
@@ -376,5 +440,7 @@ void init_signal_chain() {
 
     correlator_results_q = xQueueCreate(128, sizeof(correlator_result_t));
     correlator_tap = std::make_shared<data_queue::DataTap<correlator_tap_t>>();
+
+    filter::filter_init();
 }
 

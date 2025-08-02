@@ -264,6 +264,47 @@ cli_result_t post_cmd(size_t argc, const char *argv[]) {
     return CMD_OK;
 }
 
+cli_result_t signal_tap_cmd(size_t argc, const char *argv[]) {
+    size_t size{128};
+    uint32_t mask;
+
+    if (argc == 1) {
+        mask = atoi(argv[0]);
+    } else if (argc == 2) {
+        mask = atoi(argv[0]);
+        size = atoi(argv[1]);
+    } else
+        return CMD_ERROR;
+
+    if ((mask == 0)  || (size < 1))
+        return CMD_ERROR;
+
+    signal_chain_tap(mask, size);
+
+    while (true) {
+        filter::filter_tap_t r;
+
+        if (!filter::filter_tap_receive(&r, 1000))
+            break;
+        cli_debug("id=%d, len=%d, done=%d", r.id, r.len, r.done);
+        size_t rem_len = r.len;
+        const int16_t *data = r.buf;
+        while (rem_len > 0) {
+            if (rem_len >=8) {
+                cli_debug(format_vec(data, 8, "%hd").c_str());
+                data += 8;
+                rem_len -= 8;
+            } else {
+                cli_debug(format_vec(data, rem_len, "%hd").c_str());
+                rem_len = 0;
+            }
+        }
+    }    
+
+
+    return CMD_OK;
+}
+
 
 
 cli_result_t test_cmd(size_t argc, const char *argv[]);
@@ -283,7 +324,8 @@ static const cli_cmd_t command_list[] = {
     {test_cmd, "test"},
     {flash_strobe_test_cmd, "flashstrobetest"},
     {benchmark_cmd, "b"},
-    {results_cmd, "res"}
+    {results_cmd, "res"},
+    {signal_tap_cmd, "tap"}
 };
 
 static int command_num = sizeof(command_list) / sizeof(command_list[0]);
@@ -338,6 +380,8 @@ cli_result_t test_cmd(size_t argc, const char *argv[]) {
     cli_info("dma_samples %d", stat->dma_samples);
     cli_info("filter_in %d", stat->filter_in);
     cli_info("filter_out %d", stat->filter_out);
+    cli_info("rx_obj[0] %d", stat->rx_obj[0]);
+    cli_info("rx_obj[1] %d", stat->rx_obj[1]);
     cli_info("correlator_in %d", stat->correlator_in);
     cli_info("correlator_runs %d", stat->correlator_runs);
     cli_info("correlator_runtime %d", stat->correlator_runtime);

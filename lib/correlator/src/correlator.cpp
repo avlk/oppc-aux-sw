@@ -153,11 +153,11 @@ size_t correlator::break_chunks(const CircularBuffer &a,
     return break_chunks_a(a, start_a, chunks_b, n_chunks_b, pairs);
 }
 
-static uint64_t correlate_pair(const processing_pair_t& p) {
-    uint64_t sum{0};
+static int64_t correlate_pair(const processing_pair_t& p) {
+    int64_t sum{0};
     const int16_t *pa{p.a.start};
     const int16_t *pb{p.b.start};
-    uint32_t subsum;
+    int32_t subsum;
     constexpr size_t batch_size{16};
     size_t len{p.a.length};
     
@@ -197,7 +197,7 @@ void correlator::correlate(const CircularBuffer &a,
                         uint32_t length,
                         correlator::correlate_callback_t &callback) {
     int32_t max_index{0};
-    uint64_t max_val{0};
+    int64_t max_val{0};
     uint64_t time_chunks{0};
     uint64_t time_correlate{0};
     uint64_t n_correlations{0};
@@ -217,7 +217,7 @@ void correlator::correlate(const CircularBuffer &a,
                             chunks_b, n_chunks_b, pairs);
         // time_chunks += time_us_64() - start_c;
 
-        uint64_t sum{0};
+        int64_t sum{0};
         // auto start_p{time_us_64()};
         for (size_t n = 0; n < n_pairs; n++) {
             sum += correlate_pair(pairs[n]);
@@ -232,16 +232,16 @@ void correlator::correlate(const CircularBuffer &a,
     // cli_info("correlate_len %llu", n_correlations);
 }
 
-std::pair<int32_t, uint64_t> 
+std::pair<int32_t, int64_t> 
 correlator::correlate_max(const CircularBuffer &a,
                         const CircularBuffer &b,
                         uint32_t a_offset_min, 
                         uint32_t a_offset_max,
                         uint32_t length) {
     int32_t max_index{0};
-    uint64_t max_val{0};
+    int64_t max_val{0};
 
-    correlator::correlate_callback_t f([&](int32_t offset, uint64_t sum) {
+    correlator::correlate_callback_t f([&](int32_t offset, int64_t sum) {
         if (sum > max_val) {
             max_val = sum;
             max_index = offset;

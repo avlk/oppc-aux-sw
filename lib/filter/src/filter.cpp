@@ -1,5 +1,8 @@
 #include <math.h>
 #include <string.h>
+#include <FreeRTOS.h>
+#include <queue.h>
+#include "message_buffer.h"
 #include "filter.h"
 
 
@@ -14,6 +17,55 @@ using namespace filter;
 #else
 #define EXECUTE_FROM_RAM(subsection)
 #endif
+
+static MessageBufferHandle_t tap_stream;
+void filter::filter_init() {
+    constexpr size_t storage_length{4};
+    tap_stream = xMessageBufferCreate((sizeof(size_t) + sizeof(filter_tap_t))*storage_length);
+}
+
+static void filter_tap_send(int id, const int16_t *data, size_t len, bool done);
+
+
+EXECUTE_FROM_RAM("filter")
+void GenericFilter::consume(size_t max_length) {
+    size_t consume_size = std::min(m_out_cnt, max_length);
+    if (!consume_size)
+        return;
+
+    if (unlikely(m_tap_active)) {
+        bool final{false};
+        if (consume_size >= m_tap_len) {
+            m_tap_len = 0;
+            m_tap_active = 0;
+            final = true;
+        } else {
+            m_tap_len -= consume_size;
+        }
+        filter_tap_send(m_tap_id, m_out_buf, consume_size, final);
+    }
+
+    if (consume_size == m_out_cnt)
+        m_out_cnt = 0;
+    else {
+        memmove(m_out_buf, &m_out_buf[consume_size], sizeof(m_out_buf[0]) * (m_out_cnt - consume_size));
+        m_out_cnt = m_out_cnt - consume_size;
+    }
+}
+
+// Returns requested number of samples or less
+EXECUTE_FROM_RAM("filter")
+size_t GenericFilter::read(int16_t *out, size_t max_length) {
+    size_t output_size = std::min(m_out_cnt, max_length);
+    if (!output_size)
+        return output_size;
+    // copy to output
+    memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
+    // remove from buffer
+    consume(output_size);
+    return output_size;
+}
+
 
 EXECUTE_FROM_RAM("fir")
 void FIRFilter::write(const int16_t *data, size_t length, size_t step) {
@@ -124,31 +176,6 @@ int32_t FIRFilter::process_one_sym() {
     return result >> m_gain_bits;
 }
 
-void FIRFilter::consume(size_t max_length) {
-    size_t consume_size = std::min(m_out_cnt, max_length);
-    if (!consume_size)
-        return;
-
-    if (consume_size == m_out_cnt)
-        m_out_cnt = 0;
-    else {
-        memmove(m_out_buf, &m_out_buf[consume_size], sizeof(m_out_buf[0]) * (m_out_cnt - consume_size));
-        m_out_cnt = m_out_cnt - consume_size;
-    }
-}
-
-// Returns requested number of samples or less
-size_t FIRFilter::read(int16_t *out, size_t max_length) {
-    size_t output_size = std::min(m_out_cnt, max_length);
-    if (!output_size)
-        return output_size;
-    // copy to output
-    memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
-    // remove from buffer
-    consume(output_size);
-    return output_size;
-}
-
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
 EXECUTE_FROM_RAM("cic")
 void CICFilter<order, decimation_factor>::write(const int16_t *data, size_t length, 
@@ -199,35 +226,6 @@ void CICFilter<order, decimation_factor>::write(const int16_t *data, size_t leng
     m_data_counter = data_counter;
 }
 
-template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
-EXECUTE_FROM_RAM("cic")
-void CICFilter<order, decimation_factor>::consume(size_t max_length) {
-    size_t consume_size = std::min(m_out_cnt, max_length);
-    if (!consume_size)
-        return;
-
-    if (consume_size == m_out_cnt)
-        m_out_cnt = 0;
-    else {
-        memmove(m_out_buf, &m_out_buf[consume_size], sizeof(m_out_buf[0]) * (m_out_cnt - consume_size));
-        m_out_cnt = m_out_cnt - consume_size;
-    }
-}
-
-// Returns requested number of samples or less
-template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
-EXECUTE_FROM_RAM("cic")
-size_t CICFilter<order, decimation_factor>::read(int16_t *out, size_t max_length) {
-    size_t output_size = std::min(m_out_cnt, max_length);
-    if (!output_size)
-        return output_size;
-    // copy to output
-    memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
-    // remove from buffer
-    consume(output_size);
-    return output_size;
-}
-
 
 // Pre-instantiate templated classes for requested cases
 template class CICFilter<4,5>;
@@ -267,27 +265,18 @@ void DCBlockFilter::write(const int16_t *data, size_t length) {
     m_dc_prev_y = dc_prev_y;
 }
 
-void DCBlockFilter::consume(size_t max_length) {
-    size_t consume_size = std::min(m_out_cnt, max_length);
-    if (!consume_size)
-        return;
 
-    if (consume_size == m_out_cnt)
-        m_out_cnt = 0;
-    else {
-        memmove(m_out_buf, &m_out_buf[consume_size], sizeof(m_out_buf[0]) * (m_out_cnt - consume_size));
-        m_out_cnt = m_out_cnt - consume_size;
-    }
+static void filter_tap_send(int id, const int16_t *buf, size_t len, bool done) {
+    filter_tap_t tap{};
+    tap.id = id;
+    tap.len = len;
+    tap.done = done ? 1 : 0;
+    memcpy(tap.buf, buf, len * sizeof(*buf));
+    xMessageBufferSend(tap_stream, &tap, sizeof(tap), portMAX_DELAY);
 }
-
-// Returns requested number of samples or less
-size_t DCBlockFilter::read(int16_t *out, size_t max_length) {
-    size_t output_size = std::min(m_out_cnt, max_length);
-    if (!output_size)
-        return output_size;
-    // copy to output
-    memcpy(out, m_out_buf, output_size * sizeof(m_out_buf[0]));
-    // remove from buffer
-    consume(output_size);
-    return output_size;
+    
+bool filter::filter_tap_receive(filter_tap_t *buf, unsigned int timeout) {
+    if (timeout != portMAX_DELAY)
+        timeout = pdMS_TO_TICKS(timeout);
+    return sizeof(filter_tap_t) == xMessageBufferReceive(tap_stream, buf, sizeof(filter_tap_t), timeout);
 }

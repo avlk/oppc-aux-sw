@@ -28,6 +28,7 @@ typedef struct {
     uint32_t correlator_in;
     uint32_t correlator_runs;
     uint32_t correlator_runtime;
+    uint32_t rx_obj[2];
 } signal_chain_stat_t;
 
 const signal_chain_stat_t *get_signal_chain_stat();
@@ -38,6 +39,8 @@ QueueHandle_t get_correlator_results_q();
 void analog_task(void *pvParameters);
 void correlator_task(void *pvParameters);
 void detector_task(void *pvParameters);
+
+void signal_chain_tap(uint32_t mask, size_t len);
 
 void init_signal_chain();
 

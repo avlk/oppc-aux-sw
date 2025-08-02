@@ -8,22 +8,11 @@
 namespace filter {
 
 constexpr size_t FILTER_OUTPUT_LEN{128};
-constexpr uint8_t FILTER_SIZE_MAG2{7};
-constexpr size_t MAX_FILTER_ORDER{1 << FILTER_SIZE_MAG2};
-constexpr size_t FILTER_BUFFER_SIZE{1 << FILTER_SIZE_MAG2};
-constexpr uint32_t FILTER_ADDR_MASK{(0xFFFFFFFF) >> (32 - FILTER_SIZE_MAG2)};
 
-class FIRFilter final {
+void filter_init();
+
+class GenericFilter {
 public:
-    FIRFilter(std::vector<float> coefficients, size_t decimation_factor,
-              uint32_t gain_bits = 12) 
-        : m_decimation_factor{decimation_factor}, m_gain_bits(gain_bits),
-        m_data_counter{1} {
-        set_coefficients(coefficients, gain_bits);
-    }
-    ~FIRFilter() = default;
-
-    void write(const int16_t *data, size_t length, size_t step = 1);
     // Reads max_length output data into out, returns number of entries filled
     size_t read(int16_t *out, size_t max_length);
     // Returns output queue length
@@ -32,13 +21,45 @@ public:
     int16_t *out_buf() { return m_out_buf; }
     // Removes max_length first output entries
     void  consume(size_t max_length);
+    // Output overflow counter
+    uint32_t overflow_cnt{0};
+    // Activate filter tap, not thread safe
+    void tap_data(uint8_t id, size_t len) {
+        m_tap_id = id;
+        m_tap_len = len;
+        m_tap_active = true;
+    }
+protected:
+    size_t      m_out_cnt{0};
+    int16_t     m_out_buf[FILTER_OUTPUT_LEN]{};
+private:
+    bool    m_tap_active{false};
+    uint8_t m_tap_id{0};
+    size_t  m_tap_len{0};
+};
+
+constexpr uint8_t FILTER_SIZE_MAG2{7};
+constexpr size_t MAX_FILTER_ORDER{1 << FILTER_SIZE_MAG2};
+constexpr size_t FILTER_BUFFER_SIZE{1 << FILTER_SIZE_MAG2};
+constexpr uint32_t FILTER_ADDR_MASK{(0xFFFFFFFF) >> (32 - FILTER_SIZE_MAG2)};
+
+class FIRFilter final : public GenericFilter {
+public:
+    FIRFilter(std::vector<float> coefficients, size_t decimation_factor,
+              uint32_t gain_bits = 12) 
+        : GenericFilter{}, m_decimation_factor{decimation_factor}, m_gain_bits(gain_bits),
+        m_data_counter{1} {
+        set_coefficients(coefficients, gain_bits);
+    }
+    ~FIRFilter() = default;
+
+    void write(const int16_t *data, size_t length, size_t step = 1);
 
     // debug functions
     void set_symmetric(bool sym) { m_is_symmetric = sym; }
     void set_buffer_pos(size_t pos) { m_buffer_pos = std::min(pos, FILTER_BUFFER_SIZE-1);};
     
     bool is_symmetric() { return m_is_symmetric; }
-    uint32_t overflow_cnt{0};
 private:
     std::vector<int32_t> m_coefficients;
     size_t      m_decimation_factor{1};
@@ -46,8 +67,6 @@ private:
     int16_t     m_buffer[FILTER_BUFFER_SIZE]{};
     size_t      m_buffer_pos{0};
     size_t      m_data_counter{0};
-    size_t      m_out_cnt{0};
-    int16_t     m_out_buf[FILTER_OUTPUT_LEN];
     uint32_t    m_gain_bits;
 
     void set_coefficients(std::vector<float> coefficients, uint32_t m_gain_bits);
@@ -58,9 +77,9 @@ private:
 constexpr size_t MAX_CIC_ORDER{8};
 
 template <uint8_t order /* M */, uint8_t decimation_factor /* R */>
-class CICFilter final {
+class CICFilter final : public GenericFilter {
 public:
-    CICFilter() { 
+    CICFilter() : GenericFilter{} { 
         uint32_t n = 1;
         int _order = order;
         while (_order--)
@@ -74,14 +93,6 @@ public:
     ~CICFilter() = default;
 
     void write(const int16_t *data, size_t length, size_t step = 1);
-    // Reads max_length output data into out, returns number of entries filled
-    size_t read(int16_t *out, size_t max_length);
-    // Returns output queue length
-    size_t out_len() { return m_out_cnt; }
-    // Returns pointer to the output values
-    int16_t *out_buf() { return m_out_buf; }
-    // Removes max_length first output entries
-    void  consume(size_t max_length);
     // Returns unattenuated gain of this filter
     float gain() { return m_gain; }
 
@@ -89,11 +100,7 @@ private:
     int32_t     m_int_state[order*2]{};
     uint8_t     m_data_counter;
     uint8_t     m_attenuate_shift{1};
-    size_t      m_out_cnt{0};
-    int16_t     m_out_buf[FILTER_OUTPUT_LEN];
     float       m_gain;
-public:
-    uint32_t overflow_cnt{0};
 };
 
 // DC filter pole would be (1 << DC_BASE_SHIFT - DC_POLE_NUM)/(1 << DC_BASE_SHIFT)
@@ -101,33 +108,33 @@ public:
 constexpr uint32_t DC_BASE_SHIFT{15};
 constexpr uint32_t DC_POLE_NUM{4}; 
 
-class DCBlockFilter final {
+class DCBlockFilter final : public GenericFilter {
 public:
-    DCBlockFilter() {};
+    DCBlockFilter() : GenericFilter{} {};
     ~DCBlockFilter() = default;
 
     void write(const int16_t *data, size_t length);
-    // Reads max_length output data into out, returns number of entries filled
-    size_t read(int16_t *out, size_t max_length);
-    // Returns output queue length
-    size_t out_len() { return m_out_cnt; }
-    // Returns pointer to the output values
-    int16_t *out_buf() { return m_out_buf; }
-    // Removes max_length first output entries
-    void  consume(size_t max_length);
 
     void preinit(int16_t val) { m_dc_prev_x = val * (1 << DC_BASE_SHIFT); }
 
 private:
-    size_t  m_out_cnt{0};
-    int16_t m_out_buf[FILTER_OUTPUT_LEN];
     // DC removal internal data
     int32_t m_dc_acc{0};
     int32_t m_dc_prev_x{0};
     int32_t m_dc_prev_y{0};
-
-public:
-    uint32_t overflow_cnt{0};
 };
+
+// Filter output tap (clone for debugging) functions
+
+typedef struct {
+    uint8_t id;
+    uint8_t len;
+    uint8_t done;
+    uint8_t _pad;
+    int16_t buf[FILTER_BUFFER_SIZE];
+} filter_tap_t;
+
+bool filter_tap_receive(filter_tap_t * buf, unsigned int timeout = portMAX_DELAY);
+
 
 }
