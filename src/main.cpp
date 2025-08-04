@@ -225,7 +225,11 @@ cli_result_t flash_cmd(size_t argc, const char *argv[]) {
         return CMD_ERROR;
 
     set_flash(true);
-    task_sleep_ms(time_ms);
+    if (time_ms > 1)
+        task_sleep_ms(time_ms - 1);
+    gpio_set(IO_CAM0, true);
+    task_sleep_ms(1);
+    gpio_set(IO_CAM0, false);
     set_flash(false);
 
     return CMD_OK;
@@ -402,6 +406,51 @@ void heartbeat_task(void *pvParameters) {
     }
 }
 
+TaskHandle_t t_flash_trigger;
+constexpr uint irq_gpio{IO_S2_TRIG};
+constexpr uint32_t FLASH_WAKE_FLAG{1};
+constexpr uint32_t flash_delay_ms{4};
+
+static void gpio_irq_callback(uint gpio, uint32_t event_mask) {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    if (gpio == irq_gpio) {
+        gpio_acknowledge_irq(irq_gpio, GPIO_IRQ_EDGE_RISE);
+        gpio_set_irq_enabled(irq_gpio, GPIO_IRQ_EDGE_RISE, false);
+        // trigger main task
+        xTaskNotifyFromISR( t_flash_trigger,
+            FLASH_WAKE_FLAG,
+            eSetBits,
+            &xHigherPriorityTaskWoken);
+    }
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+void flash_trigger_task(void *pvParameters) {
+
+    gpio_set_irq_enabled_with_callback(irq_gpio, GPIO_IRQ_EDGE_RISE,
+        true, gpio_irq_callback);
+
+    BaseType_t xResult;
+    uint32_t rx_value;
+    
+    while (1) {
+        /* Wait to be notified of an interrupt. */
+        xResult = xTaskNotifyWait( 0, FLASH_WAKE_FLAG, /* Clear flag bit on exit. */
+                                    &rx_value /* Stores the notified value. */, portMAX_DELAY  );
+
+        if (xResult != pdPASS)
+            continue;
+
+        set_flash(true);
+        task_sleep_ms(flash_delay_ms);
+        gpio_set(IO_CAM0, true);
+        task_sleep_ms(1);
+        gpio_set(IO_CAM0, false);
+        set_flash(false);
+        gpio_set_irq_enabled(irq_gpio, GPIO_IRQ_EDGE_RISE, true);
+    }
+}
 
 
 void setup() {
@@ -420,14 +469,15 @@ void setup() {
     TaskHandle_t t_heartbeat, t_analog, t_correlator, t_detector;
     xTaskCreate(heartbeat_task, "heartbeat", 128, NULL, 1, &t_heartbeat);
     xTaskCreate(analog_task, "analog", DEF_STACK_SIZE, NULL, 3, &t_analog);
-    xTaskCreate(correlator_task, "correlator", 2048, NULL, 2, &t_correlator);
-    xTaskCreate(detector_task, "detector", 2048, NULL, 2, &t_detector);
+    // xTaskCreate(correlator_task, "correlator", 2048, NULL, 2, &t_correlator);
+    // xTaskCreate(detector_task, "detector", 2048, NULL, 2, &t_detector);
+    xTaskCreate(flash_trigger_task, "trigger", 256, NULL, 4, &t_flash_trigger);
 
     // configure tasks to run on core 1, but correlator on core 2 
     vTaskCoreAffinitySet(t_heartbeat, 0x1);
     vTaskCoreAffinitySet(t_analog, 0x1);
-    vTaskCoreAffinitySet(t_correlator, 0x2);
-    vTaskCoreAffinitySet(t_detector, 0x1);
+    // vTaskCoreAffinitySet(t_correlator, 0x2);
+    // vTaskCoreAffinitySet(t_detector, 0x1);
 
     adc_begin();
 
