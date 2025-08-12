@@ -19,7 +19,8 @@ void gpio_begin(void) {
 
   gpio_set(IO_CAM0, 0);
   gpio_output(IO_CAM0);
-  gpio_input(IO_CAM1);
+  gpio_set(IO_CAM1, 0);
+  gpio_output(IO_CAM1);
   gpio_input(IO_CAM2);
   gpio_input(IO_CAM3);
 

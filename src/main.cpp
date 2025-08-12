@@ -214,23 +214,56 @@ cli_result_t flash_level_cmd(size_t argc, const char *argv[]) {
     return CMD_OK;
 }
 
-cli_result_t flash_cmd(size_t argc, const char *argv[]) {
-    int time_ms = 5;
-    
-    if (argc == 1) {
-        time_ms = atoi(argv[0]);
-    } else if (argc == 0) {
-        // use default time
-    } else
-        return CMD_ERROR;
 
+// Settings rely on disabled line rate control and exposure time 25000us
+uint32_t flash_delay_ms{4};
+uint32_t flash_window_start_delay_ms{45};
+uint32_t flash_exposure_ms{2};
+volatile bool flash_trigger_enable{true};
+
+int flash_strobe() {
+    int ret = 0;
+    task_sleep_ms(flash_delay_ms);
+    gpio_set(IO_CAM0, true);  gpio_set(IO_CAM1, true);
+    task_sleep_ms(flash_window_start_delay_ms);
+    if (gpio_get(IO_CAM2))
+        ret |= 1;
     set_flash(true);
-    if (time_ms > 1)
-        task_sleep_ms(time_ms - 1);
-    gpio_set(IO_CAM0, true);
-    task_sleep_ms(1);
-    gpio_set(IO_CAM0, false);
+    task_sleep_ms(flash_exposure_ms);
+    if (gpio_get(IO_CAM2))
+        ret |= 2;
+    gpio_set(IO_CAM0, false); gpio_set(IO_CAM1, false);
     set_flash(false);
+    return ret;
+}
+
+cli_result_t flash_cmd(size_t argc, const char *argv[]) {
+
+    if (argc == 2) {
+        auto param = argv[0];
+        int value = atoi(argv[1]);
+        
+        if (strcmp(param, "d") == 0) {
+            flash_delay_ms = value;
+        } else if (strcmp(param, "wd") == 0) {
+            flash_window_start_delay_ms = value;
+        } else if (strcmp(param, "exp") == 0) {
+            flash_exposure_ms = value;
+        } else {
+            return CMD_ERROR;
+        }
+    } else if (argc != 0) {
+        return CMD_ERROR;
+    }
+
+    flash_trigger_enable = false;
+    auto flash_window = flash_strobe();
+    flash_trigger_enable = true;
+
+    cli_debug("Delay %d ms, exposure %d ms, window match %s-%s", 
+        flash_delay_ms, flash_exposure_ms,
+        (flash_window & 1) ? "OK" : "-",
+        (flash_window & 2) ? "OK" : "-");
 
     return CMD_OK;
 }
@@ -409,7 +442,7 @@ void heartbeat_task(void *pvParameters) {
 TaskHandle_t t_flash_trigger;
 constexpr uint irq_gpio{IO_S2_TRIG};
 constexpr uint32_t FLASH_WAKE_FLAG{1};
-constexpr uint32_t flash_delay_ms{4};
+
 
 static void gpio_irq_callback(uint gpio, uint32_t event_mask) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -442,12 +475,12 @@ void flash_trigger_task(void *pvParameters) {
         if (xResult != pdPASS)
             continue;
 
-        set_flash(true);
-        task_sleep_ms(flash_delay_ms);
-        gpio_set(IO_CAM0, true);
-        task_sleep_ms(1);
-        gpio_set(IO_CAM0, false);
-        set_flash(false);
+        if (flash_trigger_enable) {
+            flash_strobe();
+        } else {
+            task_sleep_ms(flash_exposure_ms + 5);
+        }
+
         gpio_set_irq_enabled(irq_gpio, GPIO_IRQ_EDGE_RISE, true);
     }
 }
